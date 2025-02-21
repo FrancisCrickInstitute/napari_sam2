@@ -1,5 +1,6 @@
 include LICENSE
 include README.md
+include sam2_configs/*.yaml
 
 recursive-exclude * __pycache__
 recursive-exclude * *.py[co]
