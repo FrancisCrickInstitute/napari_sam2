@@ -1,11 +1,7 @@
 # napari-sam2
 
-[![License MIT](https://img.shields.io/pypi/l/napari-sam2.svg?color=green)](https://github.com/FrancisCrickInstitute/napari-sam2/raw/main/LICENSE)
-[![PyPI](https://img.shields.io/pypi/v/napari-sam2.svg?color=green)](https://pypi.org/project/napari-sam2)
-[![Python Version](https://img.shields.io/pypi/pyversions/napari-sam2.svg?color=green)](https://python.org)
-[![tests](https://github.com/FrancisCrickInstitute/napari-sam2/workflows/tests/badge.svg)](https://github.com/FrancisCrickInstitute/napari-sam2/actions)
-[![codecov](https://codecov.io/gh/FrancisCrickInstitute/napari-sam2/branch/main/graph/badge.svg)](https://codecov.io/gh/FrancisCrickInstitute/napari-sam2)
-[![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-sam2)](https://napari-hub.org/plugins/napari-sam2)
+> [!NOTE]
+> This is a **work in progress** as part of a live project within the SEAI STP. If you come across this repo and are interested please contact [Cameron Shand](mailto:cameron.shand@crick.ac.uk).
 
 A plugin for interactive use of SAM2 for segmentation and tracking
 
@@ -21,13 +17,11 @@ and review the napari docs for plugin developers:
 https://napari.org/stable/plugins/index.html
 -->
 
-## Installation
+<!-- ## Installation
 
 You can install `napari-sam2` via [pip]:
 
-    pip install napari-sam2
-
-
+    pip install napari-sam2 -->
 
 
 ## Contributing
