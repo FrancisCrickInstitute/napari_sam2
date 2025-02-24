@@ -3,9 +3,9 @@ import os
 from typing import TYPE_CHECKING
 
 from app_model.types import KeyCode
-from napari.layers.base import ActionType
+from napari.qt.threading import thread_worker
 from napari.utils.colormaps import label_colormap
-from napari.utils.notifications import show_error
+from napari.utils.notifications import show_error, show_info
 import numpy as np
 import pandas as pd
 from qtpy.QtWidgets import (
@@ -479,7 +479,6 @@ class PromptWidget(SAM2Subwidget):
             self.create_points_layer()
         point_layer = self.viewer.layers[self.point_layer_name]
         # Also need to store in the prompt dict? Or maybe that's easiest to just pickle on storing and then load back in...
-        print(self.prompts)
         df_points = pd.read_csv(point_file)
         for (obj_id, frame_idx), df_group in df_points.groupby(
             ["object_id", "axis-0"]
@@ -574,29 +573,45 @@ class PromptWidget(SAM2Subwidget):
         else:
             num_frames = inference_state["num_frames"] - first_frame
         self.init_pbar(num_frames=num_frames)
-        for (
-            out_frame_idx,
-            out_obj_ids,
-            out_mask_logits,
-        ) in sam2_model.propagate_in_video(
-            inference_state,
-            start_frame_idx=first_frame,
-            reverse=reverse,
-        ):
-            video_segments[out_frame_idx] = {
-                out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-                for i, out_obj_id in enumerate(out_obj_ids)
+
+        @thread_worker(
+            connect={
+                "yielded": self.update_propagation,
             }
-            # Update progress bar
-            self.update_pbar()
-            # Update mask layer with the new masks
-            self.update_prompt_masks(
-                out_obj_ids=video_segments[out_frame_idx],
-                frame_idx=out_frame_idx,
-            )
-            # Move Napari viewer to this frame to show the new masks
-            self.viewer.dims.set_point(0, out_frame_idx)
-        # Reset the progress bar
+        )
+        def _run_propagation(
+            sam2_model, inference_state, first_frame, reverse
+        ):
+            for (
+                out_frame_idx,
+                out_obj_ids,
+                out_mask_logits,
+            ) in sam2_model.propagate_in_video(
+                inference_state,
+                start_frame_idx=first_frame,
+                reverse=reverse,
+            ):
+                video_segments[out_frame_idx] = {
+                    out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+                    for i, out_obj_id in enumerate(out_obj_ids)
+                }
+                yield video_segments, out_frame_idx
+
+        _run_propagation(sam2_model, inference_state, first_frame, reverse)
+        # TODO: Reset the progress bar
+        show_info("Propagation complete!")
+
+    def update_propagation(self, outputs):
+        video_segments, out_frame_idx = outputs
+        # Update progress bar
+        self.update_pbar()
+        # Update mask layer with the new masks
+        self.update_prompt_masks(
+            out_obj_ids=video_segments[out_frame_idx],
+            frame_idx=out_frame_idx,
+        )
+        # Move Napari viewer to this frame to show the new masks
+        self.viewer.dims.set_point(0, out_frame_idx)
 
     def init_pbar(self, num_frames: int):
         self.propagate_pbar.setRange(0, num_frames)
