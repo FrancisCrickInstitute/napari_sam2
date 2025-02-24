@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from napari.layers import Image
 from qtpy.QtWidgets import QWidget, QPushButton, QComboBox, QLabel, QLayout
@@ -29,7 +29,7 @@ class DataWidget(SAM2Subwidget):
         self.viewer.layers.selection.events.changed.connect(
             self.switch_selected_layer
         )
-        # Store current image layer name that the model is initialised for
+        # Store a tuple of (model_type, layer_name) for the current embeddings to avoid recalculating on UI changes
         # TODO: Could store multiple sets in the future
         self.current_embeddings = None
         # Easy reference for current image/video layer being used
@@ -71,7 +71,10 @@ class DataWidget(SAM2Subwidget):
         # Disable the button after embeddings have been calculated to avoid unnecessary comp
         self.embeddings_btn.setEnabled(False)
         self.embeddings_btn.setText("Embeddings loaded!")
-        self.current_embeddings = self.current_layer.name
+        self.current_embeddings = (
+            self.parent.subwidgets["model"].loaded_model,
+            self.current_layer.name,
+        )
 
     def layer_added(self, event):
         if isinstance(event.value, Image):
@@ -105,7 +108,20 @@ class DataWidget(SAM2Subwidget):
         else:
             return
         # Check whether we have embeddings for this layer or not
-        if selected_layer.name == self.current_embeddings:
+        self.check_embedding_btn()
+
+    def check_embedding_btn(
+        self,
+        model_type: Optional[str] = None,
+        layer_name: Optional[str] = None,
+    ):
+        # Allow to be None so we can extract directly from subwidgets
+        if model_type is None:
+            loaded_model = self.parent.subwidgets["model"].loaded_model
+        if layer_name is None:
+            layer_name = self.current_layer.name
+        # TODO: The current embeddings are actually a (model_type, layer_name) tuple we need to check for
+        if self.current_embeddings == (loaded_model, layer_name):
             self.embeddings_btn.setEnabled(False)
             self.embeddings_btn.setText("Embeddings loaded!")
             self.embeddings_calcd = True

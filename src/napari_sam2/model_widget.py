@@ -180,6 +180,7 @@ class ModelWidget(SAM2Subwidget):
         self.loaded_model = self.model_type
         self.load_btn.setText("Model Loaded!")
         self.load_btn.setEnabled(False)
+        self.parent.subwidgets["data"].check_embedding_btn()
 
     def download_model(self):
         show_info(f"Downloading {self.model_type} model...")
@@ -303,11 +304,7 @@ class ModelWidget(SAM2Subwidget):
             self.model_loaded = False
             # Reset embeddings button
             # TODO: Abstract & refactor
-            self.parent.subwidgets["data"].embeddings_calcd = False
-            self.parent.subwidgets["data"].embeddings_btn.setEnabled(True)
-            self.parent.subwidgets["data"].embeddings_btn.setText(
-                "Calculate Embeddings"
-            )
+            self.parent.subwidgets["data"].check_embedding_btn()
         # Delete all embeddings that may exist
         # TODO: Add a yes/no dialog pop-up if any existing embeddings are present
         # Now embeddings_set
