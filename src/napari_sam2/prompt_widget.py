@@ -597,6 +597,9 @@ class PromptWidget(SAM2Subwidget):
                 }
                 yield video_segments, out_frame_idx
 
+        # Switch points layer to PAN_ZOOM mode to discourage segmenting while propagating
+        self.viewer.layers[self.point_layer_name].mode = "PAN_ZOOM"
+
         _run_propagation(sam2_model, inference_state, first_frame, reverse)
         # TODO: Reset the progress bar
         show_info("Propagation complete!")
