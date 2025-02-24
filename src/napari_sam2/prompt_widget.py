@@ -51,6 +51,9 @@ class PromptWidget(SAM2Subwidget):
         # Each has a subdict with a key for each frame, and a list of prompts and their types
         self.prompts = {}
 
+        self.cancel_prop = False
+        self.worker = None
+
         self.global_colour_cycle = label_colormap(
             num_colors=49, seed=0.5, background_value=0
         )
@@ -81,14 +84,14 @@ class PromptWidget(SAM2Subwidget):
         self.load_prompt_layers_btn = QPushButton("Load Layers")
         self.load_prompt_layers_btn.clicked.connect(self.load_prompt_layers)
         # Buttons/boxes for video propagation
-        self.video_propagate_btn = QPushButton("Propagate Across Video")
+        self.video_propagate_btn = QPushButton("Propagate\nPrompts")
         self.video_propagate_btn.clicked.connect(self.video_propagate)
         self.video_propagate_btn.setToolTip(
             format_tooltip(
                 "Propagate the given prompts across the entire video. This may take some time."
             )
         )
-        self.propagate_direction_box = QCheckBox("Reverse Propagation")
+        self.propagate_direction_box = QCheckBox("Reverse\nPropagation")
         self.propagate_direction_box.setChecked(False)
         # TODO: Update tooltip when figured out where start and end points are
         self.propagate_direction_box.setToolTip(
@@ -96,6 +99,12 @@ class PromptWidget(SAM2Subwidget):
                 "Reverse the direction of propagation when propagating across the video (i.e. from end to start)"
             )
         )
+        self.cancel_prop_btn = QPushButton("Cancel\nPropagation")
+        self.cancel_prop_btn.clicked.connect(self.cancel_propagation)
+        self.cancel_prop_btn.setToolTip(
+            format_tooltip("Cancel the current propagation")
+        )
+
         # Progress bars resize and are annoying so nest a layout for them
         pbar_layout = QHBoxLayout()
         # Add a progress bar for video propagation
@@ -111,14 +120,15 @@ class PromptWidget(SAM2Subwidget):
         pbar_layout.addWidget(self.propagate_pbar)
 
         # Add the buttons to the layout
-        self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 2)
-        self.layout.addWidget(self.create_prompt_layers_btn, 1, 0, 1, 1)
-        self.layout.addWidget(self.clear_prompt_layers_btn, 1, 1, 1, 1)
-        self.layout.addWidget(self.store_prompt_layers_btn, 2, 0, 1, 1)
-        self.layout.addWidget(self.load_prompt_layers_btn, 2, 1, 1, 1)
-        self.layout.addWidget(self.video_propagate_btn, 3, 0, 1, 1)
-        self.layout.addWidget(self.propagate_direction_box, 3, 1, 1, 1)
-        self.layout.addLayout(pbar_layout, 4, 0, 1, 2)
+        self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 6)
+        self.layout.addWidget(self.create_prompt_layers_btn, 1, 0, 1, 3)
+        self.layout.addWidget(self.clear_prompt_layers_btn, 1, 3, 1, 3)
+        self.layout.addWidget(self.store_prompt_layers_btn, 2, 0, 1, 3)
+        self.layout.addWidget(self.load_prompt_layers_btn, 2, 3, 1, 3)
+        self.layout.addWidget(self.video_propagate_btn, 3, 0, 1, 2)
+        self.layout.addWidget(self.propagate_direction_box, 3, 2, 1, 2)
+        self.layout.addWidget(self.cancel_prop_btn, 3, 4, 1, 2)
+        self.layout.addLayout(pbar_layout, 4, 0, 1, 6)
 
     def create_prompt_layers(self):
         # NOTE: We want to add labels first so that points is "above", and are better seen
@@ -549,6 +559,9 @@ class PromptWidget(SAM2Subwidget):
     # TODO: Turn this into a thread worker
     # TODO: Make this cancellable
     def video_propagate(self):
+        # Reset flag to cancel the propagation
+        # NOTE: We do it here to ensure after final yield we still reset the progress bar
+        self.cancel_prop = False
         # Reset current progress bar
         self.reset_pbar()
         # This should just be a trigger of SAM2 propagation
@@ -600,7 +613,9 @@ class PromptWidget(SAM2Subwidget):
         # Switch points layer to PAN_ZOOM mode to discourage segmenting while propagating
         self.viewer.layers[self.point_layer_name].mode = "PAN_ZOOM"
 
-        _run_propagation(sam2_model, inference_state, first_frame, reverse)
+        self.worker = _run_propagation(
+            sam2_model, inference_state, first_frame, reverse
+        )
         # TODO: Reset the progress bar
         show_info("Propagation complete!")
 
@@ -615,6 +630,11 @@ class PromptWidget(SAM2Subwidget):
         )
         # Move Napari viewer to this frame to show the new masks
         self.viewer.dims.set_point(0, out_frame_idx)
+        # If cancel btn has been clicked since last yield, cancel the next propagation
+        if self.cancel_prop:
+            self.worker.quit()
+            self.reset_pbar()
+            show_info("Propagation cancelled!")
 
     def init_pbar(self, num_frames: int):
         self.propagate_pbar.setRange(0, num_frames)
@@ -652,3 +672,7 @@ class PromptWidget(SAM2Subwidget):
             return None
         else:
             return label_layer.data
+
+    def cancel_propagation(self):
+        # Set a flag to cancel the propagation
+        self.cancel_prop = True
