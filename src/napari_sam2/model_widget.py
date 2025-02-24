@@ -84,7 +84,7 @@ class ModelWidget(SAM2Subwidget):
         self.sam2_model = None
 
         self.initialize_ui()
-
+        # Connect close event to delete temp frame directory
         self.destroyed.connect(self.on_close)
 
     def create_widgets(self):

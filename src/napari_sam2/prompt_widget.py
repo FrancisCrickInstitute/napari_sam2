@@ -394,23 +394,25 @@ class PromptWidget(SAM2Subwidget):
             caption="Select Prompt Directory",
             directory=str(self.prompt_dir),
         )
-        if prompt_dir != "":
-            self.prompt_dir = Path(prompt_dir)
-            # Get current image name as the root for the prompt layers
-            current_image_name = Path(
-                self.parent.subwidgets["data"].current_layer.name
-            ).stem
-            # Save the points layer using Napari's default func
-            points_layer = self.viewer.layers[self.point_layer_name]
-            points_layer.save(
-                str(self.prompt_dir / f"{current_image_name}_points.csv")
-            )
-            # Save the labels layer using Napari's default func
-            # NOTE: It retains labels so what we need
-            label_layer = self.viewer.layers[self.label_layer_name]
-            label_layer.save(
-                str(self.prompt_dir / f"{current_image_name}_labels.tiff")
-            )
+        if prompt_dir == "":
+            return
+        # Reset prompt dir so next open is in the same location
+        self.prompt_dir = Path(prompt_dir)
+        # Get current image name as the root for the prompt layers
+        current_image_name = Path(
+            self.parent.subwidgets["data"].current_layer.name
+        ).stem
+        # Save the points layer using Napari's default func
+        points_layer = self.viewer.layers[self.point_layer_name]
+        points_layer.save(
+            str(self.prompt_dir / f"{current_image_name}_points.csv")
+        )
+        # Save the labels layer using Napari's default func
+        # NOTE: It retains labels so what we need
+        label_layer = self.viewer.layers[self.label_layer_name]
+        label_layer.save(
+            str(self.prompt_dir / f"{current_image_name}_labels.tiff")
+        )
 
     def load_prompt_layers(self):
         if not self.parent.subwidgets["data"].embeddings_calcd:
@@ -624,3 +626,11 @@ class PromptWidget(SAM2Subwidget):
         if self.propagate_tqdm_pbar is not None:
             self.propagate_tqdm_pbar.close()
         self.pbar_label.setText("Progress: [--:--]")
+
+    def get_mask(self):
+        # Get the mask for the current frame
+        label_layer = self.viewer.layers[self.label_layer_name]
+        if label_layer is None:
+            return None
+        else:
+            return label_layer.data

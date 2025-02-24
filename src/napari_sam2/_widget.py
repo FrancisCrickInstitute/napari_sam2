@@ -5,6 +5,7 @@ from qtpy.QtWidgets import QHBoxLayout, QPushButton, QWidget, QVBoxLayout
 from napari_sam2.data_widget import DataWidget
 from napari_sam2.model_widget import ModelWidget
 from napari_sam2.prompt_widget import PromptWidget
+from napari_sam2.export_widget import ExportWidget
 from napari_sam2.utils import format_tooltip
 
 if TYPE_CHECKING:
@@ -46,6 +47,14 @@ class SAM2MainWidget(QWidget):
                 title="Prompts",
                 parent=self,
                 tooltip=format_tooltip("Prompts for SAM2"),
+            )
+        )
+        self.add_subwidget(
+            ExportWidget(
+                viewer=self.viewer,
+                title="Export",
+                parent=self,
+                tooltip=format_tooltip("Export options"),
             )
         )
 
