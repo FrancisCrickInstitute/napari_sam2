@@ -86,12 +86,9 @@ class ExportWidget(SAM2Subwidget):
         )
         self.export_tracks_btn = QPushButton("Export Tracks")
         self.export_tracks_btn.clicked.connect(self.export_tracks)
-        # FIXME: How does Napari export by default? We'll want to use that.
         self.export_tracks_btn.setToolTip(
             format_tooltip("Export the tracks as a CSV file.")
         )
-
-        # FIXME: How to make the overlay btn span the two rows?
 
         # Add the widgets to the layout
         self.layout.addWidget(self.masks_btn, 0, 0, 1, 2)
@@ -100,8 +97,25 @@ class ExportWidget(SAM2Subwidget):
         self.layout.addWidget(self.export_tracks_btn, 3, 1, 1, 1)
 
     def export_masks(self):
-        # The built-in Napari thing works well, just use a filedialog and give user control over the file name, as opposed to layer prompt storage
-        pass
+        label_layer = self.viewer.layers[
+            self.parent.subwidgets["prompt"].label_layer_name
+        ]
+        if label_layer is None:
+            show_error("No active labels layer found.")
+            return
+        # FIXME: Even though it's slightly different, this is still a bit of overlap with the prompt layer storing
+        # Open file dialog to get the save location
+        out_path, _ = QFileDialog.getSaveFileName(
+            self,
+            caption="Export Masks to File",
+            directory=str(self.export_dir),
+            filter="TIFFs (*.tif *.tiff)",
+        )
+        # TODO: Abstract out dialog and first part of file saving which repeats below
+        if out_path == "":
+            return
+        # Reset prompt dir so next open is in the same location
+        label_layer.save(out_path)
 
     def export_overlay(self):
         # Use code from holey_segment to create the overlay mp4 to export
