@@ -19,6 +19,7 @@ from qtpy.QtWidgets import (
     QLabel,
 )
 import skimage.io
+import torch
 from tqdm import tqdm
 
 from napari_sam2.subwidget import SAM2Subwidget
@@ -74,9 +75,9 @@ class PromptWidget(SAM2Subwidget):
         self.create_prompt_layers_btn.clicked.connect(
             self.create_prompt_layers
         )
-        self.clear_prompt_layers_btn = QPushButton("Clear Layers")
-        self.clear_prompt_layers_btn.clicked.connect(self.clear_prompt_layers)
-        self.clear_prompt_layers_btn.setToolTip(
+        self.reset_prompt_layers_btn = QPushButton("Clear Layers")
+        self.reset_prompt_layers_btn.clicked.connect(self.reset_prompt_layers)
+        self.reset_prompt_layers_btn.setToolTip(
             format_tooltip("Clear all prompt layers")
         )
         self.store_prompt_layers_btn = QPushButton("Store Layers")
@@ -122,7 +123,7 @@ class PromptWidget(SAM2Subwidget):
         # Add the buttons to the layout
         self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 6)
         self.layout.addWidget(self.create_prompt_layers_btn, 1, 0, 1, 3)
-        self.layout.addWidget(self.clear_prompt_layers_btn, 1, 3, 1, 3)
+        self.layout.addWidget(self.reset_prompt_layers_btn, 1, 3, 1, 3)
         self.layout.addWidget(self.store_prompt_layers_btn, 2, 0, 1, 3)
         self.layout.addWidget(self.load_prompt_layers_btn, 2, 3, 1, 3)
         self.layout.addWidget(self.video_propagate_btn, 3, 0, 1, 2)
@@ -385,7 +386,7 @@ class PromptWidget(SAM2Subwidget):
         # We have to do this to trigger Napari event to update the data, can't just insert the frame
         label_layer.data = full_arr
 
-    def clear_prompt_layers(self):
+    def reset_prompt_layers(self):
         # NOTE: To avoid triggering data change events, we delete the layers and recreate them
         self.viewer.layers.remove(self.point_layer_name)
         self.viewer.layers.remove(self.label_layer_name)
@@ -593,28 +594,35 @@ class PromptWidget(SAM2Subwidget):
             }
         )
         def _run_propagation(
-            sam2_model, inference_state, first_frame, reverse
+            sam2_model, inference_state, first_frame, reverse, device
         ):
-            for (
-                out_frame_idx,
-                out_obj_ids,
-                out_mask_logits,
-            ) in sam2_model.propagate_in_video(
-                inference_state,
-                start_frame_idx=first_frame,
-                reverse=reverse,
+            with torch.inference_mode(), torch.autocast(
+                device.type, dtype=torch.bfloat16
             ):
-                video_segments[out_frame_idx] = {
-                    out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-                    for i, out_obj_id in enumerate(out_obj_ids)
-                }
-                yield video_segments, out_frame_idx
+                for (
+                    out_frame_idx,
+                    out_obj_ids,
+                    out_mask_logits,
+                ) in sam2_model.propagate_in_video(
+                    inference_state,
+                    start_frame_idx=first_frame,
+                    reverse=reverse,
+                ):
+                    video_segments[out_frame_idx] = {
+                        out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
+                        for i, out_obj_id in enumerate(out_obj_ids)
+                    }
+                    yield video_segments, out_frame_idx
 
         # Switch points layer to PAN_ZOOM mode to discourage segmenting while propagating
         self.viewer.layers[self.point_layer_name].mode = "PAN_ZOOM"
 
         self.worker = _run_propagation(
-            sam2_model, inference_state, first_frame, reverse
+            sam2_model,
+            inference_state,
+            first_frame,
+            reverse,
+            device=self.parent.subwidgets["model"].device,
         )
         # TODO: Reset the progress bar
         show_info("Propagation complete!")

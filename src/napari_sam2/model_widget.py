@@ -21,9 +21,10 @@ from qtpy.QtWidgets import (
 from qtpy import QtCore
 import requests
 from sam2.build_sam import build_sam2_video_predictor
+import torch
 
 from napari_sam2.subwidget import SAM2Subwidget
-from napari_sam2.utils import format_tooltip, get_device
+from napari_sam2.utils import format_tooltip, get_device, configure_cuda
 
 if TYPE_CHECKING:
     import napari
@@ -82,6 +83,9 @@ class ModelWidget(SAM2Subwidget):
         # SAM2 model objects
         self.inference_state = None
         self.sam2_model = None
+
+        self.device = get_device()
+        configure_cuda(self.device)
 
         self.initialize_ui()
         # Connect close event to delete temp frame directory
@@ -160,9 +164,8 @@ class ModelWidget(SAM2Subwidget):
                 show_error(
                     f"Model file {self.model_path} does not exist. Please download it first."
                 )
-        # TODO: Grab device
-        device = get_device()
         # TODO: Dropdown option for image or video model? Outside scope?
+        # TODO: Add UI option for VOS optimised model
         # Tell Hydra to stuff it and look elsewhere
         hydra.core.global_hydra.GlobalHydra.instance().clear()
         with initialize_config_dir(
@@ -173,13 +176,15 @@ class ModelWidget(SAM2Subwidget):
             self.sam2_model = build_sam2_video_predictor(
                 config_file=str(MODEL_DICT[self.model_type]["config"].stem),
                 ckpt_path=str(self.model_path),
-                device=device,
+                device=self.device,
+                vos_optimized=False,  # Setting to True should be faster
             )
-        # TODO: Change button text to reflect model loaded
+        # Change flags to track model loading for button enabling
         self.model_loaded = True
         self.loaded_model = self.model_type
         self.load_btn.setText("Model Loaded!")
         self.load_btn.setEnabled(False)
+        # Handle embedding btn reset based on model
         self.parent.subwidgets["data"].check_embedding_btn()
 
     def download_model(self):
@@ -222,10 +227,12 @@ class ModelWidget(SAM2Subwidget):
         # Probably best to keep frame generation stuff separate from custom reader to delay computation
         self.create_frames()
         # TODO: May need the autocast context manager here? Need a global device variable for this
-        # with torch.inference_mode(), :
-        self.inference_state = self.sam2_model.init_state(
-            video_path=str(self.frame_folder)
-        )
+        with torch.inference_mode(), torch.autocast(
+            self.device.type, dtype=torch.bfloat16
+        ):
+            self.inference_state = self.sam2_model.init_state(
+                video_path=str(self.frame_folder)
+            )
         show_info("Embeddings calculated!")
         return True
 
@@ -253,44 +260,11 @@ class ModelWidget(SAM2Subwidget):
             return
         else:
             show_info("Extracting frames from video...")
-            # FIXME: Should I scrap this and pull data from layer directly rather than file?
-            # This would carry over any local changes users make
-            # Only downside is if Napari has done any conversion on load, making it diff from file
-
             # Loop over frames and save them
             # TODO: here or elsewhere, have some check on the input data for 3D-ness
             for i, frame in enumerate(layer.data):
                 slice_arr = Image.fromarray(frame)
                 slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
-
-    # def _frames_cv2(self, fname):
-    #     cap = cv2.VideoCapture(fname)
-    #     frame_count = 0
-    #     with progress(
-    #         total=int(cap.get(cv2.CAP_PROP_FRAME_COUNT)),
-    #         desc="Converting frames",
-    #     ) as pbar:
-    #         while cap.isOpened():
-    #             ret, frame = cap.read()
-    #             if not ret:
-    #                 break
-    #             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    #             cv2.imwrite(
-    #                 f"{self.frame_dir}/{frame_count:05d}.jpg",
-    #                 frame_rgb,
-    #             )
-    #             frame_count += 1
-    #             pbar.update(1)
-    #     cap.release()
-
-    # def _frames_ffmpeg(self, fname):
-    #     cmd_str = f"ffmpeg -i {fname} -q:v 2 -start_number 0 {self.frame_dir}/'%05d.jpg'"
-    #     # Run the command
-    #     try:
-    #         subprocess.run(cmd_str, shell=True, check=True)
-    #     except subprocess.CalledProcessError as e:
-    #         show_error(f"Error extracting frames: {e}")
-    #         return
 
     def model_changed(self):
         self.model_type = self.model_combo.currentText()
@@ -322,16 +296,18 @@ class ModelWidget(SAM2Subwidget):
         labels = np.array(
             prompt_dict[object_id][frame_idx]["labels"], dtype=np.int32
         )
-        _, out_obj_ids, out_mask_logits = (
-            self.sam2_model.add_new_points_or_box(
-                inference_state=self.inference_state,
-                frame_idx=frame_idx,
-                obj_id=object_id,
-                points=points,
-                labels=labels,
+        with torch.inference_mode(), torch.autocast(
+            self.device.type, dtype=torch.bfloat16
+        ):
+            _, out_obj_ids, out_mask_logits = (
+                self.sam2_model.add_new_points_or_box(
+                    inference_state=self.inference_state,
+                    frame_idx=frame_idx,
+                    obj_id=object_id,
+                    points=points,
+                    labels=labels,
+                )
             )
-        )
-
         # Turn mask logits into a mask that Napari can handle
         out_obj_ids = {
             out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
