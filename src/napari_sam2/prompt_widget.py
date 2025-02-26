@@ -50,6 +50,7 @@ class PromptWidget(SAM2Subwidget):
         self.prompt_dir = Path.home()
         # Container for prompts, key'd by object ID
         # Each has a subdict with a key for each frame, and a list of prompts and their types
+        # And whether they have been processed by SAM2, enabling mixing/switching between auto-segment on-click and batching prompts
         self.prompts = {}
 
         self.cancel_prop = False
@@ -70,6 +71,14 @@ class PromptWidget(SAM2Subwidget):
                 "Automatically trigger SAM2 when a point is added to the Point Prompts layer"
             )
         )
+        self.manual_segment_btn = QPushButton("Trigger\nSegmentation")
+        self.manual_segment_btn.clicked.connect(self.manual_segment)
+        self.manual_segment_btn.setToolTip(
+            format_tooltip(
+                "Trigger SAM2 segmentation manually. This will only trigger on prompts not yet sent to SAM2."
+            )
+        )
+
         # Buttons to handle prompt layers
         self.create_prompt_layers_btn = QPushButton("Create Layers")
         self.create_prompt_layers_btn.clicked.connect(
@@ -121,7 +130,8 @@ class PromptWidget(SAM2Subwidget):
         pbar_layout.addWidget(self.propagate_pbar)
 
         # Add the buttons to the layout
-        self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 6)
+        self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 3)
+        self.layout.addWidget(self.manual_segment_btn, 0, 3, 1, 3)
         self.layout.addWidget(self.create_prompt_layers_btn, 1, 0, 1, 3)
         self.layout.addWidget(self.reset_prompt_layers_btn, 1, 3, 1, 3)
         self.layout.addWidget(self.store_prompt_layers_btn, 2, 0, 1, 3)
@@ -314,6 +324,10 @@ class PromptWidget(SAM2Subwidget):
             )
             # Now insert new mask into Labels layer
             self.update_prompt_masks(out_obj_ids, frame_idx=point_loc[0])
+            # Now update the prompt_dict to show that this prompt has been processed
+            self.prompts[label_layer.selected_label][point_loc[0]][
+                "processed"
+            ] = True
 
     def update_prompt_dict(
         self, point_loc, prompt_type, object_id, action: str = "add"
@@ -335,6 +349,7 @@ class PromptWidget(SAM2Subwidget):
                     self.prompts[object_id][frame_idx]["labels"].append(
                         positive_prompt
                     )
+                    self.prompts[object_id][frame_idx]["processed"] = False
                 else:
                     # Remove point and label from existing arrays
                     idx = self.prompts[object_id][frame_idx]["points"].index(
@@ -351,11 +366,11 @@ class PromptWidget(SAM2Subwidget):
             # This won't be reached if action is remove
             else:
                 if not action == "add":
-                    print("How did we get here?")
-                    raise
+                    raise ValueError("How did we get here?")
                 self.prompts[object_id][frame_idx] = {
                     "points": [point_prompt],
                     "labels": [positive_prompt],
+                    "processed": False,
                 }
         else:
             # If object not present and action is remove, do nothing
@@ -366,6 +381,7 @@ class PromptWidget(SAM2Subwidget):
                 frame_idx: {
                     "points": [point_prompt],
                     "labels": [positive_prompt],
+                    "processed": False,
                 }
             }
 
@@ -385,6 +401,34 @@ class PromptWidget(SAM2Subwidget):
         full_arr[frame_idx] = mask_arr
         # We have to do this to trigger Napari event to update the data, can't just insert the frame
         label_layer.data = full_arr
+
+    def manual_segment(self):
+        # Check that we have initialised the model before we do anything
+        if not self.parent.subwidgets["data"].embeddings_calcd:
+            show_error(
+                "Model not initialised, please use the 'Calculate Embeddings' button first!"
+            )
+            return
+        # Check that we have point prompts to segment
+        if len(self.prompts) == 0:
+            show_error("No prompts to segment")
+            return
+        # Need to grab all prompts that have not been segmented yet
+        for obj_id, frame_dict in self.prompts.items():
+            for frame_idx, prompt_dict in frame_dict.items():
+                if not prompt_dict["processed"]:
+                    # Trigger SAM2 segmentation for this object ID
+                    out_obj_ids = self.parent.subwidgets[
+                        "model"
+                    ].add_point_prompt(
+                        prompt_dict=self.prompts,
+                        object_id=obj_id,
+                        frame_idx=frame_idx,
+                    )
+                    # Now insert new mask into Labels layer
+                    self.update_prompt_masks(out_obj_ids, frame_idx)
+                    # Now update the prompt_dict to show that this prompt has been processed
+                    self.prompts[obj_id][frame_idx]["processed"] = True
 
     def reset_prompt_layers(self):
         # NOTE: To avoid triggering data change events, we delete the layers and recreate them
