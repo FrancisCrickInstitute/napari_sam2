@@ -25,9 +25,12 @@ classifiers = [
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
-    "magicgui",
     "qtpy",
     "scikit-image",
+    "opencv-python",
+    "platformdirs",
+    "hydra-core",
+    "torch>=2.5.1"
 ]
 
 [project.optional-dependencies]
@@ -64,7 +67,6 @@ version = {attr = "napari_sam2.__init__.__version__"}
 
 [tool.black]
 line-length = 79
-target-version = ['py38', 'py39', 'py310']
 
 [tool.ruff]
 line-length = 79
@@ -109,5 +111,4 @@ exclude = [
     "*_vendor*",
 ]
 
-target-version = "py38"
 fix = true
