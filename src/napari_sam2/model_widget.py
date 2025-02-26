@@ -1,7 +1,7 @@
 from importlib.resources import files
 from pathlib import Path
 import shutil
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import hydra
 from hydra import initialize_config_dir
@@ -17,6 +17,7 @@ from qtpy.QtWidgets import (
     QLabel,
     QLayout,
     QFileDialog,
+    QCheckBox,
 )
 from qtpy import QtCore
 import requests
@@ -79,6 +80,7 @@ class ModelWidget(SAM2Subwidget):
         self.model_type = None
         # Flag for model loaded
         self.model_loaded = False
+        # NOTE: This is a tuple of (model_type, low_memory_mode) to ensure proper enabling/disabling
         self.loaded_model = None
         # SAM2 model objects
         self.inference_state = None
@@ -124,6 +126,15 @@ class ModelWidget(SAM2Subwidget):
         # TODO: This will be a widget with two paths, one for a model checkpoint and one for a config file. The user will be responsible for this.
         # TODO: The name should then be reflected in the model dropdown to still allow for easy switching between models
 
+        self.low_memory_cb = QCheckBox("Low-Memory Mode")
+        self.low_memory_cb.setToolTip(
+            format_tooltip(
+                "Enable this option to reduce memory usage at the cost of slower performance. Recommended for longer videos or lower VRAM GPUs."
+            )
+        )
+        self.low_memory_cb.stateChanged.connect(self.check_model_load_btn)
+        # TODO: Connect to func to incorporate model load and embedding button enabling/disabling
+
         self.load_btn = QPushButton("Load Model")
         self.load_btn.clicked.connect(self.load_model)
         self.load_btn.setToolTip(
@@ -143,7 +154,8 @@ class ModelWidget(SAM2Subwidget):
         self.layout.addWidget(self.model_combo, 0, 1, 1, 1)
         self.layout.addWidget(self.download_loc_btn, 1, 0, 1, 1)
         self.layout.addWidget(self.download_loc_text, 1, 1, 1, 1)
-        self.layout.addWidget(self.load_btn, 2, 0, 1, 2)
+        self.layout.addWidget(self.low_memory_cb, 2, 0, 1, 1)
+        self.layout.addWidget(self.load_btn, 2, 1, 1, 1)
 
     def _check_model_exists(self):
         # Get current model type
@@ -178,14 +190,12 @@ class ModelWidget(SAM2Subwidget):
                 ckpt_path=str(self.model_path),
                 device=self.device,
                 vos_optimized=False,  # Setting to True should be faster
+                # clear_non_cond_mem_around_input=True,  # Reduces memory usage
+                # add_all_frames_to_correct_as_cond=True,  # Improves use of later correction clicks
             )
-        # Change flags to track model loading for button enabling
-        self.model_loaded = True
-        self.loaded_model = self.model_type
-        self.load_btn.setText("Model Loaded!")
-        self.load_btn.setEnabled(False)
-        # Handle embedding btn reset based on model
-        self.parent.subwidgets["data"].check_embedding_btn()
+        # Set currently loaded model, then handle button text
+        self.loaded_model = (self.model_type, self.low_memory_cb.isChecked())
+        self.check_model_load_btn()
 
     def download_model(self):
         show_info(f"Downloading {self.model_type} model...")
@@ -226,14 +236,23 @@ class ModelWidget(SAM2Subwidget):
         # Double-check the above as notebook is poss out of date?
         # Probably best to keep frame generation stuff separate from custom reader to delay computation
         self.create_frames()
-        # TODO: May need the autocast context manager here? Need a global device variable for this
+        # Set kwargs based on memory mode option
+        kwargs = {}
+        if self.low_memory_cb.isChecked():
+            kwargs["offload_video_to_cpu"] = True
+            kwargs["async_loading_frames"] = True
+        else:
+            kwargs["offload_video_to_cpu"] = False
+            kwargs["async_loading_frames"] = False
+        show_info("Calculating embeddings...")
+        # TODO: Wrap into a thread_worker
         with torch.inference_mode(), torch.autocast(
             self.device.type,
             dtype=torch.bfloat16,
             enabled=self.device.type == "cuda",
         ):
             self.inference_state = self.sam2_model.init_state(
-                video_path=str(self.frame_folder)
+                video_path=str(self.frame_folder), **kwargs
             )
         show_info("Embeddings calculated!")
         return True
@@ -268,9 +287,14 @@ class ModelWidget(SAM2Subwidget):
                 slice_arr = Image.fromarray(frame)
                 slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
 
-    def model_changed(self):
-        self.model_type = self.model_combo.currentText()
-        if self.model_type == self.loaded_model:
+    def check_model_load_btn(self, model_type: Optional[str] = None):
+        if model_type is None:
+            model_type = self.model_type
+        # Check if model is loaded and set button text accordingly
+        if self.loaded_model == (
+            self.model_type,
+            self.low_memory_cb.isChecked(),
+        ):
             self.load_btn.setText("Model Loaded!")
             self.load_btn.setEnabled(False)
             self.model_loaded = True
@@ -278,9 +302,12 @@ class ModelWidget(SAM2Subwidget):
             self.load_btn.setText("Load Model")
             self.load_btn.setEnabled(True)
             self.model_loaded = False
-            # Reset embeddings button
-            # TODO: Abstract & refactor
-            self.parent.subwidgets["data"].check_embedding_btn()
+        # Reset embeddings button
+        self.parent.subwidgets["data"].check_embedding_btn()
+
+    def model_changed(self):
+        self.model_type = self.model_combo.currentText()
+        self.check_model_load_btn()
         # Delete all embeddings that may exist
         # TODO: Add a yes/no dialog pop-up if any existing embeddings are present
         # Now embeddings_set
@@ -312,6 +339,7 @@ class ModelWidget(SAM2Subwidget):
                     labels=labels,
                 )
             )
+        self.parent.subwidgets["model"].check_memory()
         # Turn mask logits into a mask that Napari can handle
         out_obj_ids = {
             out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
@@ -320,6 +348,7 @@ class ModelWidget(SAM2Subwidget):
         return out_obj_ids
 
     def reset_model(self):
+        # TODO: Add option for less blunt approach, removing larger parts of inference_state dict?
         self.sam2_model.reset_state(self.inference_state)
 
     def remove_object_from_model(self, object_id):
@@ -341,3 +370,17 @@ class ModelWidget(SAM2Subwidget):
         # Clean up temp directory
         print("Cleaning up temp directory...")
         shutil.rmtree(self.frame_temp_dir)
+
+    def check_memory(self):
+        # Check current VRAM usage and purge inference_state if close to limit
+        # Despite changes, each frame consumes some memory so for very long videos we need remove some bits
+        # NOTE: This only works with CUDA. Apple is RAM-bound, and CPU is...not great.
+        # TODO: Enable this for Mac by checking system memory instead, even though mine is always >90%
+        if not self.device.type == "cuda":
+            return
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+        # If we're using more than 90% of VRAM, clear the inference state
+        if free_bytes / total_bytes < 0.1:
+            self.reset_model()
+            show_info("Approaching GPU memory limit. Resetting model.")
+        print(f"Memory usage: {free_bytes / total_bytes:.2f}")

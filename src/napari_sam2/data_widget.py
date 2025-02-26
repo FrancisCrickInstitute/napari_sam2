@@ -121,6 +121,7 @@ class DataWidget(SAM2Subwidget):
         if layer_name is None:
             layer_name = self.current_layer.name
         # TODO: The current embeddings are actually a (model_type, layer_name) tuple we need to check for
+        # NOTE: We do not consider low memory mode here as that does not affect the embeddings
         if self.current_embeddings == (loaded_model, layer_name):
             self.embeddings_btn.setEnabled(False)
             self.embeddings_btn.setText("Embeddings loaded!")

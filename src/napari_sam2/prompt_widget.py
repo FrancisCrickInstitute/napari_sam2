@@ -639,7 +639,12 @@ class PromptWidget(SAM2Subwidget):
             }
         )
         def _run_propagation(
-            sam2_model, inference_state, first_frame, reverse, device
+            sam2_model,
+            inference_state,
+            first_frame,
+            reverse,
+            device,
+            low_memory,
         ):
             with torch.inference_mode(), torch.autocast(
                 device.type,
@@ -660,6 +665,24 @@ class PromptWidget(SAM2Subwidget):
                         for i, out_obj_id in enumerate(out_obj_ids)
                     }
                     yield video_segments, out_frame_idx
+                    # If low-memory mode, remove non-conditioning memory around previous frame
+                    print(out_frame_idx)
+                    self.parent.subwidgets["model"].check_memory()
+                    if low_memory:
+                        # Select the previous frame, accounting for direction and frame bounds
+                        frame_to_remove = (
+                            min(
+                                out_frame_idx + 1,
+                                inference_state["num_frames"],
+                            )
+                            if reverse
+                            else max(out_frame_idx - 1, 0)
+                        )
+                        sam2_model._clear_non_cond_mem_around_input(
+                            inference_state, frame_to_remove
+                        )
+                        print("Cleared memory around frame", frame_to_remove)
+                        self.parent.subwidgets["model"].check_memory()
 
         # Switch points layer to PAN_ZOOM mode to discourage segmenting while propagating
         self.viewer.layers[self.point_layer_name].mode = "PAN_ZOOM"
@@ -670,6 +693,9 @@ class PromptWidget(SAM2Subwidget):
             first_frame,
             reverse,
             device=self.parent.subwidgets["model"].device,
+            low_memory=self.parent.subwidgets[
+                "model"
+            ].low_memory_cb.isChecked(),
         )
 
     def update_propagation(self, outputs):
