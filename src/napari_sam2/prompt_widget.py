@@ -635,6 +635,7 @@ class PromptWidget(SAM2Subwidget):
         @thread_worker(
             connect={
                 "yielded": self.update_propagation,
+                "finished": lambda: show_info("Propagation complete!"),
             }
         )
         def _run_propagation(
@@ -668,8 +669,6 @@ class PromptWidget(SAM2Subwidget):
             reverse,
             device=self.parent.subwidgets["model"].device,
         )
-        # TODO: Reset the progress bar
-        show_info("Propagation complete!")
 
     def update_propagation(self, outputs):
         video_segments, out_frame_idx = outputs
