@@ -642,7 +642,9 @@ class PromptWidget(SAM2Subwidget):
             sam2_model, inference_state, first_frame, reverse, device
         ):
             with torch.inference_mode(), torch.autocast(
-                device.type, dtype=torch.bfloat16
+                device.type,
+                dtype=torch.bfloat16,
+                enabled=device.type == "cuda",
             ):
                 for (
                     out_frame_idx,

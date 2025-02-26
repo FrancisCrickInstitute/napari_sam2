@@ -228,7 +228,9 @@ class ModelWidget(SAM2Subwidget):
         self.create_frames()
         # TODO: May need the autocast context manager here? Need a global device variable for this
         with torch.inference_mode(), torch.autocast(
-            self.device.type, dtype=torch.bfloat16
+            self.device.type,
+            dtype=torch.bfloat16,
+            enabled=self.device.type == "cuda",
         ):
             self.inference_state = self.sam2_model.init_state(
                 video_path=str(self.frame_folder)
@@ -297,7 +299,9 @@ class ModelWidget(SAM2Subwidget):
             prompt_dict[object_id][frame_idx]["labels"], dtype=np.int32
         )
         with torch.inference_mode(), torch.autocast(
-            self.device.type, dtype=torch.bfloat16
+            self.device.type,
+            dtype=torch.bfloat16,
+            enabled=self.device.type == "cuda",
         ):
             _, out_obj_ids, out_mask_logits = (
                 self.sam2_model.add_new_points_or_box(
