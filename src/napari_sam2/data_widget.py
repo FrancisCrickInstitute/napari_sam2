@@ -90,6 +90,9 @@ class DataWidget(SAM2Subwidget):
         # Integer means we're switching layers via the dropdown, not selection
         if isinstance(event, int):
             dropdown_name = self.image_layer_dropdown.itemText(event)
+            if dropdown_name == "":
+                self.current_layer = None
+                return
             selected_layer = self.viewer.layers[dropdown_name]
         else:
             selected_layer = event.source.active
