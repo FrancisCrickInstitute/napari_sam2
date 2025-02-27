@@ -64,9 +64,10 @@ class DataWidget(SAM2Subwidget):
 
     def calc_embeddings(self):
         # Due to how things are initialized, we wrap model subwidget function here
-        success = self.parent.subwidgets["model"].calc_embeddings()
-        if not success:
-            return
+        self.parent.subwidgets["model"].calc_embeddings()
+
+    def finish_calc_embeddings(self):
+        show_info("Embeddings calculated!")
         self.embeddings_calcd = True
         # Disable the button after embeddings have been calculated to avoid unnecessary comp
         self.embeddings_btn.setEnabled(False)

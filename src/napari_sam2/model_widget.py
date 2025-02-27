@@ -245,17 +245,25 @@ class ModelWidget(SAM2Subwidget):
             kwargs["offload_video_to_cpu"] = False
             kwargs["async_loading_frames"] = False
         show_info("Calculating embeddings...")
-        # TODO: Wrap into a thread_worker
-        with torch.inference_mode(), torch.autocast(
-            self.device.type,
-            dtype=torch.bfloat16,
-            enabled=self.device.type == "cuda",
-        ):
-            self.inference_state = self.sam2_model.init_state(
-                video_path=str(self.frame_folder), **kwargs
-            )
-        show_info("Embeddings calculated!")
-        return True
+
+        @thread_worker(
+            connect={
+                "finished": self.parent.subwidgets[
+                    "data"
+                ].finish_calc_embeddings,
+            }
+        )
+        def _init_state(self, kwargs):
+            with torch.inference_mode(), torch.autocast(
+                self.device.type,
+                dtype=torch.bfloat16,
+                enabled=self.device.type == "cuda",
+            ):
+                self.inference_state = self.sam2_model.init_state(
+                    video_path=str(self.frame_folder), **kwargs
+                )
+
+        _init_state(self, kwargs)
 
     def change_download_loc(self):
         new_dir = QFileDialog.getExistingDirectory(
