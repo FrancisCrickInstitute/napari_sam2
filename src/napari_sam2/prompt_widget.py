@@ -103,10 +103,9 @@ class PromptWidget(SAM2Subwidget):
         )
         self.propagate_direction_box = QCheckBox("Reverse\nPropagation")
         self.propagate_direction_box.setChecked(False)
-        # TODO: Update tooltip when figured out where start and end points are
         self.propagate_direction_box.setToolTip(
             format_tooltip(
-                "Reverse the direction of propagation when propagating across the video (i.e. from end to start)"
+                "Reverse the direction of propagation across the video"
             )
         )
         self.cancel_prop_btn = QPushButton("Cancel\nPropagation")
@@ -295,7 +294,6 @@ class PromptWidget(SAM2Subwidget):
                 "Model not initialised, please use the 'Calculate Embeddings' button first!"
             )
             return
-        # TODO: Is this right?
         # NOTE: Calling int here always rounds the float position down
         # We need to repeat this behaviour when handling point removal
         point_loc = [
@@ -333,7 +331,7 @@ class PromptWidget(SAM2Subwidget):
         self, point_loc, prompt_type, object_id, action: str = "add"
     ):
         # Extract the XY coords from point_loc array
-        point_prompt = [point_loc[2], point_loc[1]]  # TODO: Double-check this
+        point_prompt = [point_loc[2], point_loc[1]]
         # prompt_type is a bool (1 = positive, 0 = negative)
         positive_prompt = int(prompt_type)
         frame_idx = point_loc[0]
@@ -560,8 +558,6 @@ class PromptWidget(SAM2Subwidget):
                     object_id=obj_id,
                     action="add",
                 )
-            # TODO: We will be sending a batch of points for each object ID
-            # But this is only for a single frame, so need to adjust the loop as a double-groupby for object ID and frame
             # Now trigger SAM2 segmentation for this object ID
             out_obj_ids = self.parent.subwidgets["model"].add_point_prompt(
                 prompt_dict=self.prompts,
@@ -601,8 +597,6 @@ class PromptWidget(SAM2Subwidget):
         else:
             label_layer.selected_label = new_max_label
 
-    # TODO: Turn this into a thread worker
-    # TODO: Make this cancellable
     def video_propagate(self):
         # Reset flag to cancel the propagation
         # NOTE: We do it here to ensure after final yield we still reset the progress bar

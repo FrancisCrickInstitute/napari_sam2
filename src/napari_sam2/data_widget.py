@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from napari.layers import Image
+from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QWidget, QPushButton, QComboBox, QLabel, QLayout
 
 from napari_sam2.subwidget import SAM2Subwidget
@@ -30,7 +31,6 @@ class DataWidget(SAM2Subwidget):
             self.switch_selected_layer
         )
         # Store a tuple of (model_type, layer_name) for the current embeddings to avoid recalculating on UI changes
-        # TODO: Could store multiple sets in the future
         self.current_embeddings = None
         # Easy reference for current image/video layer being used
         self.current_layer = None
@@ -124,7 +124,6 @@ class DataWidget(SAM2Subwidget):
             loaded_model = self.parent.subwidgets["model"].loaded_model
         if layer_name is None:
             layer_name = self.current_layer.name
-        # TODO: The current embeddings are actually a (model_type, layer_name) tuple we need to check for
         # NOTE: We do not consider low memory mode here as that does not affect the embeddings
         if self.current_embeddings == (loaded_model, layer_name):
             self.embeddings_btn.setEnabled(False)

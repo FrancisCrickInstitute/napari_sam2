@@ -111,7 +111,6 @@ class ExportWidget(SAM2Subwidget):
             directory=str(self.export_dir),
             filter="TIFFs (*.tif *.tiff)",
         )
-        # TODO: Abstract out dialog and first part of file saving which repeats below
         if out_path == "":
             return
         # Reset prompt dir so next open is in the same location

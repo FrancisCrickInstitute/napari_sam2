@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Optional
 
 import hydra
 from hydra import initialize_config_dir
+from napari.qt.threading import thread_worker
 from napari.utils import progress
 from napari.utils.notifications import show_error, show_info
 import numpy as np
@@ -30,7 +31,6 @@ from napari_sam2.utils import format_tooltip, get_device, configure_cuda
 if TYPE_CHECKING:
     import napari
 
-# TODO: Create dict of model types/info here to centralise it
 SAM2_BASE_URL = "https://dl.fbaipublicfiles.com/segment_anything_2/092824"
 SAM2_CONFIG_DIR = files("napari_sam2.sam2_configs")
 MODEL_DICT = {
@@ -133,7 +133,6 @@ class ModelWidget(SAM2Subwidget):
             )
         )
         self.low_memory_cb.stateChanged.connect(self.check_model_load_btn)
-        # TODO: Connect to func to incorporate model load and embedding button enabling/disabling
 
         self.load_btn = QPushButton("Load Model")
         self.load_btn.clicked.connect(self.load_model)
@@ -176,7 +175,6 @@ class ModelWidget(SAM2Subwidget):
                 show_error(
                     f"Model file {self.model_path} does not exist. Please download it first."
                 )
-        # TODO: Dropdown option for image or video model? Outside scope?
         # TODO: Add UI option for VOS optimised model
         # Tell Hydra to stuff it and look elsewhere
         hydra.core.global_hydra.GlobalHydra.instance().clear()
@@ -232,7 +230,6 @@ class ModelWidget(SAM2Subwidget):
             self.reset_model()
         # Clear all previous prompts
         self.parent.subwidgets["prompt"].prompt_dict = {}
-        # TODO: This is only necessary if data is not an MP4 file
         # Double-check the above as notebook is poss out of date?
         # Probably best to keep frame generation stuff separate from custom reader to delay computation
         self.create_frames()
@@ -316,11 +313,6 @@ class ModelWidget(SAM2Subwidget):
     def model_changed(self):
         self.model_type = self.model_combo.currentText()
         self.check_model_load_btn()
-        # Delete all embeddings that may exist
-        # TODO: Add a yes/no dialog pop-up if any existing embeddings are present
-        # Now embeddings_set
-        # self.parent.subwidgets["data"].embeddings_dict = {}
-        # TODO: Clear any existing model, and reset load model button text to reflect this
 
     def add_point_prompt(self, object_id, prompt_dict, frame_idx):
         # Add new points to model
