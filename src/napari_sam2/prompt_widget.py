@@ -729,9 +729,13 @@ class PromptWidget(SAM2Subwidget):
         rate = self.propagate_tqdm_pbar.format_dict["rate"]
         # Rate can be None
         rate = rate if rate else 1
-        remaining = (
-            self.propagate_tqdm_pbar.total - self.propagate_tqdm_pbar.n
-        ) / rate
+        remaining = max(
+            (
+                (self.propagate_tqdm_pbar.total - self.propagate_tqdm_pbar.n)
+                / rate
+            ),
+            0,
+        )
         self.pbar_label.setText(
             f"Progress: [{self.propagate_tqdm_pbar.format_interval(elapsed)}<{self.propagate_tqdm_pbar.format_interval(remaining)}]"
         )
