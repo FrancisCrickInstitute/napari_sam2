@@ -75,6 +75,7 @@ class DataWidget(SAM2Subwidget):
         self.current_embeddings = (
             self.parent.subwidgets["model"].loaded_model,
             self.current_layer.name,
+            self.parent.subwidgets["model"].memory_mode,
         )
 
     def layer_added(self, event):
@@ -118,14 +119,17 @@ class DataWidget(SAM2Subwidget):
         self,
         model_type: Optional[str] = None,
         layer_name: Optional[str] = None,
+        memory_mode: Optional[str] = None,
     ):
         # Allow to be None so we can extract directly from subwidgets
         if model_type is None:
             loaded_model = self.parent.subwidgets["model"].loaded_model
         if layer_name is None:
             layer_name = self.current_layer.name
+        if memory_mode is None:
+            memory_mode = self.parent.subwidgets["model"].memory_mode
         # NOTE: We do not consider low memory mode here as that does not affect the embeddings
-        if self.current_embeddings == (loaded_model, layer_name):
+        if self.current_embeddings == (loaded_model, layer_name, memory_mode):
             self.embeddings_btn.setEnabled(False)
             self.embeddings_btn.setText("Embeddings loaded!")
             self.embeddings_calcd = True

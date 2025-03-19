@@ -80,8 +80,8 @@ class ModelWidget(SAM2Subwidget):
         self.model_type = None
         # Flag for model loaded
         self.model_loaded = False
-        # NOTE: This is a tuple of (model_type, low_memory_mode) to ensure proper enabling/disabling
         self.loaded_model = None
+        self.memory_mode = None
         # SAM2 model objects
         self.inference_state = None
         self.sam2_model = None
@@ -132,7 +132,17 @@ class ModelWidget(SAM2Subwidget):
                 "Enable this option to reduce memory usage at the cost of slower performance. Recommended for longer videos or lower VRAM GPUs."
             )
         )
-        self.low_memory_cb.stateChanged.connect(self.check_model_load_btn)
+        self.low_memory_cb.stateChanged.connect(self.memory_mode_cb_changed)
+
+        self.super_low_memory_cb = QCheckBox("Super Low-Memory Mode")
+        self.super_low_memory_cb.setToolTip(
+            format_tooltip(
+                "Enable this option to reduce memory usage even further. Recommended for very long videos or very low VRAM GPUs. This will be extremely slow."
+            )
+        )
+        self.super_low_memory_cb.stateChanged.connect(
+            self.memory_mode_cb_changed
+        )
 
         self.load_btn = QPushButton("Load Model")
         self.load_btn.clicked.connect(self.load_model)
@@ -154,7 +164,8 @@ class ModelWidget(SAM2Subwidget):
         self.layout.addWidget(self.download_loc_btn, 1, 0, 1, 1)
         self.layout.addWidget(self.download_loc_text, 1, 1, 1, 1)
         self.layout.addWidget(self.low_memory_cb, 2, 0, 1, 1)
-        self.layout.addWidget(self.load_btn, 2, 1, 1, 1)
+        self.layout.addWidget(self.super_low_memory_cb, 3, 0, 1, 1)
+        self.layout.addWidget(self.load_btn, 2, 1, 2, 1)
 
     def _check_model_exists(self):
         # Get current model type
@@ -192,7 +203,7 @@ class ModelWidget(SAM2Subwidget):
                 # add_all_frames_to_correct_as_cond=True,  # Improves use of later correction clicks
             )
         # Set currently loaded model, then handle button text
-        self.loaded_model = (self.model_type, self.low_memory_cb.isChecked())
+        self.loaded_model = self.model_type
         self.check_model_load_btn()
 
     def download_model(self):
@@ -236,9 +247,16 @@ class ModelWidget(SAM2Subwidget):
         # Set kwargs based on memory mode option
         kwargs = {}
         if self.low_memory_cb.isChecked():
+            kwargs["offload_state_to_cpu"] = False
+            kwargs["offload_video_to_cpu"] = True
+            kwargs["async_loading_frames"] = True
+        elif self.super_low_memory_cb.isChecked():
+            kwargs["offload_state_to_cpu"] = True
             kwargs["offload_video_to_cpu"] = True
             kwargs["async_loading_frames"] = True
         else:
+            # NOTE: These are defaults, we're just being explicit
+            kwargs["offload_state_to_cpu"] = False
             kwargs["offload_video_to_cpu"] = False
             kwargs["async_loading_frames"] = False
         show_info("Calculating embeddings...")
@@ -251,10 +269,13 @@ class ModelWidget(SAM2Subwidget):
             }
         )
         def _init_state(self, kwargs):
-            with torch.inference_mode(), torch.autocast(
-                self.device.type,
-                dtype=torch.bfloat16,
-                enabled=self.device.type == "cuda",
+            with (
+                torch.inference_mode(),
+                torch.autocast(
+                    self.device.type,
+                    dtype=torch.bfloat16,
+                    enabled=self.device.type == "cuda",
+                ),
             ):
                 self.inference_state = self.sam2_model.init_state(
                     video_path=str(self.frame_folder), **kwargs
@@ -296,10 +317,7 @@ class ModelWidget(SAM2Subwidget):
         if model_type is None:
             model_type = self.model_type
         # Check if model is loaded and set button text accordingly
-        if self.loaded_model == (
-            self.model_type,
-            self.low_memory_cb.isChecked(),
-        ):
+        if self.loaded_model == self.model_type:
             self.load_btn.setText("Model Loaded!")
             self.load_btn.setEnabled(False)
             self.model_loaded = True
@@ -308,6 +326,19 @@ class ModelWidget(SAM2Subwidget):
             self.load_btn.setEnabled(True)
             self.model_loaded = False
         # Reset embeddings button
+        self.parent.subwidgets["data"].check_embedding_btn()
+
+    def memory_mode_cb_changed(self, state):
+        if state == QtCore.Qt.Checked:
+            if self.sender() == self.low_memory_cb:
+                self.super_low_memory_cb.setChecked(False)
+                self.memory_mode = "low"
+            elif self.sender() == self.super_low_memory_cb:
+                self.low_memory_cb.setChecked(False)
+                self.memory_mode = "super_low"
+        else:
+            self.memory_mode = None
+        # Now check embedding button
         self.parent.subwidgets["data"].check_embedding_btn()
 
     def model_changed(self):
@@ -325,10 +356,13 @@ class ModelWidget(SAM2Subwidget):
         labels = np.array(
             prompt_dict[object_id][frame_idx]["labels"], dtype=np.int32
         )
-        with torch.inference_mode(), torch.autocast(
-            self.device.type,
-            dtype=torch.bfloat16,
-            enabled=self.device.type == "cuda",
+        with (
+            torch.inference_mode(),
+            torch.autocast(
+                self.device.type,
+                dtype=torch.bfloat16,
+                enabled=self.device.type == "cuda",
+            ),
         ):
             _, out_obj_ids, out_mask_logits = (
                 self.sam2_model.add_new_points_or_box(
