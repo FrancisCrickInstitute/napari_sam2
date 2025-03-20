@@ -125,7 +125,11 @@ class DataWidget(SAM2Subwidget):
         if model_type is None:
             loaded_model = self.parent.subwidgets["model"].loaded_model
         if layer_name is None:
-            layer_name = self.current_layer.name
+            layer_name = (
+                self.current_layer.name
+                if self.current_layer is not None
+                else None
+            )
         if memory_mode is None:
             memory_mode = self.parent.subwidgets["model"].memory_mode
         # NOTE: We do not consider low memory mode here as that does not affect the embeddings
