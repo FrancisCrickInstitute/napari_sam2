@@ -3,6 +3,8 @@ import os
 from typing import TYPE_CHECKING
 
 from app_model.types import KeyCode
+from napari.layers.base import no_op
+from napari.layers.points._points_constants import Mode
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import label_colormap
 from napari.utils.notifications import show_error, show_info
@@ -190,6 +192,8 @@ class PromptWidget(SAM2Subwidget):
                 zip(range(0, 49), self.global_colour_cycle.colors[:49])
             ),
         )
+        # NOTE: We disable adding points as we want to handle this manually
+        points_layer._drag_modes[Mode.ADD] = no_op
         # Add callbacks/bindings to the prompt layers
         points_layer.mouse_drag_callbacks.append(self.on_mouse_click)
         points_layer.events.data.connect(self.on_data_change)
@@ -304,8 +308,11 @@ class PromptWidget(SAM2Subwidget):
         label_layer = self.viewer.layers[self.label_layer_name]
         # Now add properties for this point
         self._prep_point_features(prompt_type, label_layer.selected_label)
-        # Yield here to add the point to the layer before we update the prompt_dict
-        yield
+        # Manually add the point as we have disabled adding
+        # But skip if we are in the middle of a drag action
+        while event.type == "mouse_move":
+            yield
+        layer.add(layer.world_to_data(event.position))
         # Update the prompt_dict with the new prompt to be used in SAM2
         self.update_prompt_dict(
             point_loc,
