@@ -471,12 +471,12 @@ class PromptWidget(SAM2Subwidget):
         points_layer.save(
             str(self.prompt_dir / f"{current_image_name}_points.csv")
         )
-        # Save the labels layer using Napari's default func
-        # NOTE: It retains labels so what we need
-        label_layer = self.viewer.layers[self.label_layer_name]
-        label_layer.save(
-            str(self.prompt_dir / f"{current_image_name}_labels.tiff")
-        )
+        # # Save the labels layer using Napari's default func
+        # # NOTE: It retains labels so what we need
+        # label_layer = self.viewer.layers[self.label_layer_name]
+        # label_layer.save(
+        #     str(self.prompt_dir / f"{current_image_name}_labels.tiff")
+        # )
 
     def load_prompt_layers(self):
         if not self.parent.subwidgets["data"].embeddings_calcd:
