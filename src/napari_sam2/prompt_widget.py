@@ -700,9 +700,8 @@ class PromptWidget(SAM2Subwidget):
             first_frame,
             reverse,
             device=self.parent.subwidgets["model"].device,
-            low_memory=self.parent.subwidgets[
-                "model"
-            ].low_memory_cb.isChecked(),
+            low_memory=self.parent.subwidgets["model"].memory_mode
+            in ["low", "super_low"],
         )
 
     def update_propagation(self, outputs):
