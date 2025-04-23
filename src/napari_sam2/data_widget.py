@@ -53,6 +53,16 @@ class DataWidget(SAM2Subwidget):
         self.image_layer_dropdown.currentIndexChanged.connect(
             self.switch_selected_layer
         )
+        self.image_layer_dropdown.setMaximumWidth(300)
+        # Add any existing layers
+        if len(self.viewer.layers) > 0:
+            current_image_layers = [
+                layer.name
+                for layer in self.viewer.layers
+                if isinstance(layer, Image)
+            ]
+            if len(current_image_layers) > 0:
+                self.image_layer_dropdown.addItems(current_image_layers)
 
         # Add the widgets to the layout
         self.layout.addWidget(self.image_layer_label, 0, 0, 1, 1)
