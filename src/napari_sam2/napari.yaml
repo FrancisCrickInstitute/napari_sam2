@@ -9,6 +9,14 @@ contributions:
     - id: napari-sam2.load_widget
       python_name: napari_sam2:SAM2MainWidget
       title: SAM2 Widget
+    - id: napari-sam2.read_video
+      python_name: napari_sam2._reader:get_video_reader
+      title: Read Video
   widgets:
     - command: napari-sam2.load_widget
       display_name: SAM2 Widget
+  readers:
+    - command: napari-sam2.read_video
+      filename_patterns:
+      - '*.mp4'
+      accepts_directories: false
