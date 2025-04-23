@@ -246,19 +246,18 @@ class ModelWidget(SAM2Subwidget):
         self.create_frames()
         # Set kwargs based on memory mode option
         kwargs = {}
+        # NOTE: These are defaults, we're just being explicit
+        kwargs["offload_state_to_cpu"] = False
+        kwargs["offload_video_to_cpu"] = False
+        kwargs["async_loading_frames"] = False
+        # Now adjust based on memory mode
         if self.low_memory_cb.isChecked():
-            kwargs["offload_state_to_cpu"] = False
             kwargs["offload_video_to_cpu"] = True
             kwargs["async_loading_frames"] = True
         elif self.super_low_memory_cb.isChecked():
             kwargs["offload_state_to_cpu"] = True
             kwargs["offload_video_to_cpu"] = True
             kwargs["async_loading_frames"] = True
-        else:
-            # NOTE: These are defaults, we're just being explicit
-            kwargs["offload_state_to_cpu"] = False
-            kwargs["offload_video_to_cpu"] = False
-            kwargs["async_loading_frames"] = False
         show_info("Calculating embeddings...")
 
         @thread_worker(

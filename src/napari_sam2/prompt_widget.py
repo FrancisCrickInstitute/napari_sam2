@@ -445,6 +445,8 @@ class PromptWidget(SAM2Subwidget):
         self.create_prompt_layers()
         # Reset inference state of the model
         self.parent.subwidgets["model"].reset_model()
+        # Reset the progress bar just to clear previous run
+        self.reset_pbar()
 
     def store_prompt_layers(self):
         # Store the prompt layers
@@ -647,10 +649,13 @@ class PromptWidget(SAM2Subwidget):
             device,
             low_memory,
         ):
-            with torch.inference_mode(), torch.autocast(
-                device.type,
-                dtype=torch.bfloat16,
-                enabled=device.type == "cuda",
+            with (
+                torch.inference_mode(),
+                torch.autocast(
+                    device.type,
+                    dtype=torch.bfloat16,
+                    enabled=device.type == "cuda",
+                ),
             ):
                 for (
                     out_frame_idx,
@@ -667,7 +672,6 @@ class PromptWidget(SAM2Subwidget):
                     }
                     yield video_segments, out_frame_idx
                     # If low-memory mode, remove non-conditioning memory around previous frame
-                    print(out_frame_idx)
                     self.parent.subwidgets["model"].check_memory()
                     if low_memory:
                         # Select the previous frame, accounting for direction and frame bounds
