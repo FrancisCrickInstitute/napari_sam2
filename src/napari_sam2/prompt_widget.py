@@ -160,6 +160,8 @@ class PromptWidget(SAM2Subwidget):
             image_shape = (10, 10, 3)  # Placeholder, shouldn't be reached
         else:
             image_shape = self.viewer.layers[current_image].data.shape
+            if self.viewer.layers[current_image].rgb:
+                image_shape = image_shape[:-1]
         # Ensure that the prompt layer label cmap is the same as for the Points layer
         self.viewer.add_labels(
             np.zeros(image_shape, dtype=np.uint8),
