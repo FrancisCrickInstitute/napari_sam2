@@ -397,15 +397,22 @@ class PromptWidget(SAM2Subwidget):
         label_layer = self.viewer.layers[self.label_layer_name]
         full_arr = label_layer.data
         # Update the mask layer with the new mask
+        if full_arr.ndim == 2:
+            shape = (full_arr.shape[0], full_arr.shape[1])
+        elif full_arr.ndim == 3:
+            shape = (full_arr.shape[1], full_arr.shape[2])
         mask_arr = np.zeros(
-            (label_layer.data.shape[1], label_layer.data.shape[2]),
+            shape,
             dtype=np.uint32,
         )
         # Insert label id into mask array
         for obj_id, mask in out_obj_ids.items():
             mask_arr[mask[0] == True] = obj_id
-        # Update the mask layer with the new mask for this frame
-        full_arr[frame_idx] = mask_arr
+        # Update the mask layer with the new mask for this frame (if relevant)
+        if full_arr.ndim == 2:
+            full_arr = mask_arr
+        else:
+            full_arr[frame_idx] = mask_arr
         # We have to do this to trigger Napari event to update the data, can't just insert the frame
         label_layer.data = full_arr
 

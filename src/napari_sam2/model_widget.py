@@ -297,7 +297,19 @@ class ModelWidget(SAM2Subwidget):
         layer = self.parent.subwidgets["data"].current_layer
         # NOTE: We pull from layer directly rather than file to ensure any in-Napari changes are carried over, avoid re-reading file, and avoid having to track file paths
         # Check if frames already exist for this specific data
-        expected_num_frames = layer.data.shape[0]
+        if layer.data.ndim == 2:
+            # 2D image
+            expected_num_frames = 1
+        elif layer.data.ndim == 3:
+            if layer.rgb:
+                # RGB image
+                expected_num_frames = 1
+            else:
+                # Grayscale image
+                expected_num_frames = layer.data.shape[0]
+        elif layer.data.ndim == 4:
+            # Otherwise we hope that first channel is slices/frames
+            expected_num_frames = layer.data.shape[0]
         # Frame folder
         self.frame_folder = self.frame_temp_dir / layer.name.split(".")[0]
         self.frame_folder.mkdir(exist_ok=True)
@@ -307,10 +319,16 @@ class ModelWidget(SAM2Subwidget):
         else:
             show_info("Extracting frames from video...")
             # Loop over frames and save them
-            # TODO: here or elsewhere, have some check on the input data for 3D-ness
-            for i, frame in enumerate(layer.data):
-                slice_arr = Image.fromarray(frame)
-                slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
+            if expected_num_frames == 1:
+                # 2D image
+                # Save the image as a single frame
+                slice_arr = Image.fromarray(layer.data)
+                slice_arr.save(f"{self.frame_folder}/{0:05d}.jpg")
+            else:
+                # Otherwise loop over and save each frame/slice
+                for i, frame in enumerate(layer.data):
+                    slice_arr = Image.fromarray(frame)
+                    slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
 
     def check_model_load_btn(self, model_type: Optional[str] = None):
         if model_type is None:
