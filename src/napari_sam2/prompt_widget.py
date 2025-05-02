@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 from typing import TYPE_CHECKING
+import warnings
 
 from app_model.types import KeyCode
 from napari.layers.base import no_op
@@ -8,6 +9,7 @@ from napari.layers.points._points_constants import Mode
 from napari.qt.threading import thread_worker
 from napari.utils.colormaps import label_colormap
 from napari.utils.notifications import show_error, show_info
+from napari.utils.translations import trans
 import numpy as np
 import pandas as pd
 from qtpy.QtWidgets import (
@@ -30,6 +32,13 @@ from napari_sam2.utils import format_tooltip
 
 if TYPE_CHECKING:
     import napari
+
+# Ignore FutureWarning from Napari due to qt_viewer access
+warnings.filterwarnings(
+    "ignore",
+    category=FutureWarning,
+    message=".*Public access to Window.qt_viewer.*",
+)
 
 
 class PromptWidget(SAM2Subwidget):
@@ -204,6 +213,43 @@ class PromptWidget(SAM2Subwidget):
         points_layer.bind_key(KeyCode.Equal, self.on_increase_label)
         points_layer.bind_key(KeyCode.Minus, self.on_decrease_label)
         points_layer.bind_key(KeyCode.KeyM, self.select_max_label)
+        self._duplicate_colourbox_control(points_layer)
+
+    def _duplicate_colourbox_control(self, layer):
+        """
+        This is an extremely hacky function to copy over the Labels layer colourbox control to the Points layer.
+
+        Note that this removes the widgets from the Labels layer...
+
+        So really I need to create new blank versions of these widgets
+        and then connect the Labels ones to events that updates the Points ones
+        """
+        labels_layer = self.viewer.layers[self.label_layer_name]
+        og_colourbox = self.viewer.window.qt_viewer.controls.widgets[
+            labels_layer
+        ].colorBox
+        # Create a new colourbox for the same layer
+        self.colourbox = og_colourbox.__class__(labels_layer)
+        og_spinbox = self.viewer.window.qt_viewer.controls.widgets[
+            labels_layer
+        ].selectionSpinBox
+        self.spinbox = QLabel(str(og_spinbox.value()))
+        og_spinbox.valueChanged.connect(self._update_spinbox)
+        # Create a layout to hold the colourbox and spinbox
+        cbox_label = QLabel("Label:")
+        # Follows https://github.com/napari/napari/blob/dd734935182891ca6fbe9e14f76c87eae75ce6cc/napari/_qt/layer_controls/qt_labels_controls.py#L268
+        colourbox_layout = QHBoxLayout()
+        # colourbox_layout.addWidget(cbox_label)
+        colourbox_layout.addWidget(self.colourbox)
+        colourbox_layout.addWidget(self.spinbox)
+        # Now add it to the new points layer
+        self.viewer.window.qt_viewer.controls.widgets[layer].layout().addRow(
+            trans._("label:"), colourbox_layout
+        )
+
+    def _update_spinbox(self, value):
+        # Update the spinbox value
+        self.spinbox.setText(str(value))
 
     def on_data_change(self, event):
         # This is only for handling removal of points from our prompt dict
