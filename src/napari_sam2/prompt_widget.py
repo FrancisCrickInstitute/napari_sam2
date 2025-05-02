@@ -225,21 +225,21 @@ class PromptWidget(SAM2Subwidget):
         and then connect the Labels ones to events that updates the Points ones
         """
         labels_layer = self.viewer.layers[self.label_layer_name]
+        # Extract the original colourbox and spinbox from the Labels layer
         og_colourbox = self.viewer.window.qt_viewer.controls.widgets[
             labels_layer
         ].colorBox
-        # Create a new colourbox for the same layer
-        self.colourbox = og_colourbox.__class__(labels_layer)
         og_spinbox = self.viewer.window.qt_viewer.controls.widgets[
             labels_layer
         ].selectionSpinBox
+        # Create a new colourbox for the same layer
+        self.colourbox = og_colourbox.__class__(labels_layer)
+        # Copy of the spinbox is just a label that we'll update
         self.spinbox = QLabel(str(og_spinbox.value()))
         og_spinbox.valueChanged.connect(self._update_spinbox)
         # Create a layout to hold the colourbox and spinbox
-        cbox_label = QLabel("Label:")
         # Follows https://github.com/napari/napari/blob/dd734935182891ca6fbe9e14f76c87eae75ce6cc/napari/_qt/layer_controls/qt_labels_controls.py#L268
         colourbox_layout = QHBoxLayout()
-        # colourbox_layout.addWidget(cbox_label)
         colourbox_layout.addWidget(self.colourbox)
         colourbox_layout.addWidget(self.spinbox)
         # Now add it to the new points layer
