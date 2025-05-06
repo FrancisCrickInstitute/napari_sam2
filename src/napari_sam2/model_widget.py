@@ -199,8 +199,11 @@ class ModelWidget(SAM2Subwidget):
                 ckpt_path=str(self.model_path),
                 device=self.device,
                 vos_optimized=False,  # Setting to True should be faster
-                # clear_non_cond_mem_around_input=True,  # Reduces memory usage
-                # add_all_frames_to_correct_as_cond=True,  # Improves use of later correction clicks
+                # clear_non_cond_mem_around_input=True,  # Reduces memory usage; currently broken in SAM2
+                # Improves use of later correction clicks
+                hydra_overrides_extra=[
+                    "++model.add_all_frames_to_correct_as_cond=True",
+                ],
             )
         # Set currently loaded model, then handle button text
         self.loaded_model = self.model_type
