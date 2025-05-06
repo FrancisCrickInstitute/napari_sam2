@@ -313,22 +313,33 @@ class ModelWidget(SAM2Subwidget):
         elif layer.data.ndim == 4:
             # Otherwise we hope that first channel is slices/frames
             expected_num_frames = layer.data.shape[0]
-        # Frame folder
+        # Create frame folder for this specific image layer
         self.frame_folder = self.frame_temp_dir / layer.name.split(".")[0]
         self.frame_folder.mkdir(exist_ok=True)
-        num_frames = len(list(self.frame_folder.glob("*.jpg")))
+        frames = list(self.frame_folder.glob("*.jpg"))
+        num_frames = len(frames)
+        # If the folder already has as many frames as expected, skip
+        # NOTE: If a file has the same name and size as something else, this will be wrong
+        # But that's unlikely...right?
         if num_frames == expected_num_frames:
             return
         else:
             show_info("Extracting frames from video...")
+            # If any frames do exist, delete them to be safe
+            # NOTE: Issues can arise if same file previously used has since been truncated
+            if num_frames > 0:
+                for i in frames:
+                    i.unlink()
             # Loop over frames and save them
             if expected_num_frames == 1:
                 # 2D image
                 # Save the image as a single frame
                 slice_arr = Image.fromarray(layer.data)
+                # TODO: Check image mode and whether this can be written as JPEG
+                # 16-bit cannot be written as JPEG
                 slice_arr.save(f"{self.frame_folder}/{0:05d}.jpg")
             else:
-                # Otherwise loop over and save each frame/slice
+                # Otherwise loop over and save each frame/slice as SAM2 expects
                 for i, frame in enumerate(layer.data):
                     slice_arr = Image.fromarray(frame)
                     slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
