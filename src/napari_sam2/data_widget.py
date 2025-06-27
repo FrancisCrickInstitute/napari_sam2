@@ -69,9 +69,6 @@ class DataWidget(SAM2Subwidget):
         self.layout.addWidget(self.image_layer_dropdown, 0, 1, 1, 1)
         self.layout.addWidget(self.embeddings_btn, 1, 0, 1, 2)
 
-    def load_data(self):
-        pass
-
     def calc_embeddings(self):
         # Due to how things are initialized, we wrap model subwidget function here
         self.parent.subwidgets["model"].calc_embeddings()

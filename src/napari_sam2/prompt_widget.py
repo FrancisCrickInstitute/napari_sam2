@@ -112,6 +112,9 @@ class PromptWidget(SAM2Subwidget):
                 "Propagate the given prompts across the entire video. This may take some time."
             )
         )
+        # TODO: Add a spinbox here for max frame number to propagate to
+        # Will need to add some validation...
+        self.max_frame_spinbox = None
         self.propagate_direction_box = QCheckBox("Reverse\nPropagation")
         self.propagate_direction_box.setChecked(False)
         self.propagate_direction_box.setToolTip(
