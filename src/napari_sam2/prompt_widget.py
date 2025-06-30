@@ -64,6 +64,9 @@ class PromptWidget(SAM2Subwidget):
         # And whether they have been processed by SAM2, enabling mixing/switching between auto-segment on-click and batching prompts
         self.prompts = {}
 
+        self.moved_point_idxs = None
+        self.moved_point_locs = None
+
         self.cancel_prop = False
         self.worker = None
 
@@ -210,6 +213,7 @@ class PromptWidget(SAM2Subwidget):
         points_layer._drag_modes[Mode.ADD] = no_op
         # Add callbacks/bindings to the prompt layers
         points_layer.mouse_drag_callbacks.append(self.on_mouse_click)
+        points_layer.mouse_drag_callbacks.append(self.click_drag)
         points_layer.events.data.connect(self.on_data_change)
         # NOTE: These keycodes are what a Labels layer uses to change the label
         # https://github.com/napari/napari/blob/b2f722fd16e08d84cdf5f9af9cbd08b81639bf72/napari/utils/shortcuts.py#L44-L45
@@ -322,6 +326,20 @@ class PromptWidget(SAM2Subwidget):
             # Check how the event looks between the two actions and what we get from it
             # Then we can redesign the prompt dicts accordingly to what makes life easier
             # No need to use sets as we are working with very low N here
+        elif event.action == "changed":
+            # Be explicit with layer and avoid event source stuff
+            points_layer = self.viewer.layers[self.point_layer_name]
+            # Avoid retrigger
+            with points_layer.events.data.blocker():
+                # Ensure only triggered when points have been moved
+                if self.moved_point_idxs is not None:
+                    points_layer.data[list(self.moved_point_idxs)] = (
+                        self.moved_point_locs.squeeze()
+                    )
+                    # Now reset to ensure clean between drags
+                    self.moved_point_idxs = None
+                    self.moved_point_locs = None
+            points_layer.refresh()
 
     def _prep_point_features(self, prompt_type: bool | int, object_id: int):
         point_layer = self.viewer.layers[self.point_layer_name]
@@ -330,6 +348,11 @@ class PromptWidget(SAM2Subwidget):
         feature_defaults["object_id"] = object_id
         point_layer.feature_defaults = feature_defaults
         point_layer.refresh_colors(update_color_mapping=False)
+
+    def click_drag(self, layer, event):
+        self.moved_point_idxs = layer.selected_data
+        self.moved_point_locs = layer.data.copy()
+        yield
 
     def on_mouse_click(self, layer, event):
         if not layer.mode == "add":
