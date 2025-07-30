@@ -35,6 +35,8 @@ For guidance on best usage and further detail on features such as the "low-memor
 ## Existing To-Dos
 - Add support for bounding box prompt input
 - Add support for adding masks to guide prompts (low priority)
+- Tutorial video on usage
+- Completed documentation and [usage guide](USAGE.md)
 
 ## Contributing
 Contributions are very welcome. Tests can be run with [tox], please ensure
