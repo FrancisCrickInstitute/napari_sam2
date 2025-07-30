@@ -1,4 +1,4 @@
-# napari-sam2
+# Enhanced SAM2 Napari Plugin
 
 > [!NOTE]
 > This is a **work in progress** as part of a live project within the SEAI STP. If you come across this repo and are interested please contact [Cameron Shand](mailto:cameron.shand@crick.ac.uk).
@@ -35,7 +35,6 @@ For guidance on best usage and further detail on features such as the "low-memor
 ## Existing To-Dos
 - Add support for bounding box prompt input
 - Add support for adding masks to guide prompts (low priority)
-- Properly handle movement of existing point prompts
 
 ## Contributing
 Contributions are very welcome. Tests can be run with [tox], please ensure
