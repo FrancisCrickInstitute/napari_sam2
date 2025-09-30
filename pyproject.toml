@@ -30,7 +30,8 @@ dependencies = [
     "opencv-python",
     "platformdirs",
     "hydra-core",
-    "torch>=2.5.1"
+    "torch>=2.5.1",
+    "sam2 @ git+https://github.com/facebookresearch/sam2.git",
 ]
 
 [project.optional-dependencies]
@@ -41,7 +42,6 @@ testing = [
     "pytest-qt",  # https://pytest-qt.readthedocs.io/en/latest/
     "napari",
     "pyqt5",
-    "sam2 @ git+https://github.com/facebookresearch/sam2.git"
 ]
 
 [project.entry-points."napari.manifest"]
