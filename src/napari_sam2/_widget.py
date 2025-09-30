@@ -1,6 +1,13 @@
 from typing import TYPE_CHECKING
 
-from qtpy.QtWidgets import QHBoxLayout, QPushButton, QWidget, QVBoxLayout
+from qtpy.QtGui import QDesktopServices
+from qtpy.QtCore import QUrl
+from qtpy.QtWidgets import (
+    QHBoxLayout,
+    QPushButton,
+    QWidget,
+    QVBoxLayout,
+)
 
 from napari_sam2.data_widget import DataWidget
 from napari_sam2.model_widget import ModelWidget
@@ -22,7 +29,32 @@ class SAM2MainWidget(QWidget):
         self.setLayout(QVBoxLayout())
         # self.layout().setAlignment(qtpy.QtCore.Qt.AlignTop)
 
-        # TODO: Add tutorial/help buttons at the top
+        # Create a horizontal layout for the buttons
+        button_layout = QHBoxLayout()
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        # Button that links to a video tutorial
+        tutorial_button = self.create_button(
+            label="Video Tutorial",
+            url="??",
+            tooltip="Open our video tutorial",
+        )
+        button_layout.addWidget(tutorial_button)
+        # Button that links to the documentation
+        docs_button = self.create_button(
+            label="Written Guide",
+            url="https://github.com/FrancisCrickInstitute/napari_sam2/blob/main/USAGE.md",
+            tooltip="Open the documentation",
+        )
+        button_layout.addWidget(docs_button)
+        # Button for reporting issues
+        issue_button = self.create_button(
+            label="Report Issue",
+            url="https://github.com/FrancisCrickInstitute/napari_sam2/issues",
+            tooltip="Report an issue on GitHub",
+        )
+        button_layout.addWidget(issue_button)
+        # Add the button layout to the main layout
+        self.layout().addLayout(button_layout)
 
         self.subwidgets = {}
         self.add_subwidget(
@@ -60,3 +92,12 @@ class SAM2MainWidget(QWidget):
 
     def add_subwidget(self, widget):
         self.subwidgets[widget._name] = widget
+
+    def create_button(self, label: str, url: str, tooltip: str) -> QPushButton:
+        def open_url(url):
+            QDesktopServices.openUrl(QUrl(url))
+
+        button = QPushButton(label)
+        button.setToolTip(tooltip)
+        button.clicked.connect(lambda: open_url(url))
+        return button
