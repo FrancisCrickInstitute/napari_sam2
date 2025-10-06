@@ -706,14 +706,15 @@ class PromptWidget(SAM2Subwidget):
         # In the direction specified by the checkbox
         # TODO: Expose max_frame_num_to_track to potentially limit the number of frames to propagate
         sam2_model = self.parent.subwidgets["model"].sam2_model
-        inference_state = self.parent.subwidgets["model"].inference_state
+        inference_states = self.parent.subwidgets["model"].inference_states
         # Initialise progress bars with the number of frames to propagate
         reverse = self.propagate_direction_box.isChecked()
         if reverse:
             # If we include max_frame_num_to_track, max(first_frame - max_num, 0)
             num_frames = first_frame
         else:
-            num_frames = inference_state["num_frames"] - first_frame
+            # FIXME: num_frames consistent across states, so take first (0 or 1?)
+            num_frames = inference_states[0]["num_frames"] - first_frame
         self.init_pbar(num_frames=num_frames)
 
         @thread_worker(
@@ -724,7 +725,7 @@ class PromptWidget(SAM2Subwidget):
         )
         def _run_propagation(
             sam2_model,
-            inference_state,
+            inference_states,
             first_frame,
             reverse,
             device,
@@ -738,44 +739,48 @@ class PromptWidget(SAM2Subwidget):
                     enabled=device.type == "cuda",
                 ),
             ):
-                for (
-                    out_frame_idx,
-                    out_obj_ids,
-                    out_mask_logits,
-                ) in sam2_model.propagate_in_video(
-                    inference_state,
-                    start_frame_idx=first_frame,
-                    reverse=reverse,
-                ):
-                    video_segments[out_frame_idx] = {
-                        out_obj_id: (out_mask_logits[i] > 0.0).cpu().numpy()
-                        for i, out_obj_id in enumerate(out_obj_ids)
-                    }
-                    yield video_segments, out_frame_idx
-                    # If low-memory mode, remove non-conditioning memory around previous frame
-                    self.parent.subwidgets["model"].check_memory()
-                    if low_memory:
-                        # Select the previous frame, accounting for direction and frame bounds
-                        frame_to_remove = (
-                            min(
-                                out_frame_idx + 1,
-                                inference_state["num_frames"],
-                            )
-                            if reverse
-                            else max(out_frame_idx - 1, 0)
-                        )
-                        sam2_model._clear_non_cond_mem_around_input(
-                            inference_state, frame_to_remove
-                        )
-                        print("Cleared memory around frame", frame_to_remove)
+                # TODO: Refactor when figured out how to manage states
+                for object_id, inference_state in inference_states.items():
+                    for (
+                        out_frame_idx,
+                        out_obj_ids,
+                        out_mask_logits,
+                    ) in sam2_model.propagate_in_video(
+                        inference_state,
+                        start_frame_idx=first_frame,
+                        reverse=reverse,
+                    ):
+                        video_segments[(object_id, out_frame_idx)] = {
+                            out_obj_id: (out_mask_logits[i] > 0.0)
+                            .cpu()
+                            .numpy()
+                            for i, out_obj_id in enumerate(out_obj_ids)
+                        }
+                        yield video_segments, out_frame_idx, object_id
                         self.parent.subwidgets["model"].check_memory()
+                        if low_memory:
+                            frame_to_remove = (
+                                min(
+                                    out_frame_idx + 1,
+                                    inference_state["num_frames"],
+                                )
+                                if reverse
+                                else max(out_frame_idx - 1, 0)
+                            )
+                            sam2_model._clear_non_cond_mem_around_input(
+                                inference_state, frame_to_remove
+                            )
+                            print(
+                                "Cleared memory around frame", frame_to_remove
+                            )
+                            self.parent.subwidgets["model"].check_memory()
 
         # Switch points layer to PAN_ZOOM mode to discourage segmenting while propagating
         self.viewer.layers[self.point_layer_name].mode = "PAN_ZOOM"
 
         self.worker = _run_propagation(
             sam2_model,
-            inference_state,
+            inference_states,
             first_frame,
             reverse,
             device=self.parent.subwidgets["model"].device,
@@ -784,12 +789,13 @@ class PromptWidget(SAM2Subwidget):
         )
 
     def update_propagation(self, outputs):
-        video_segments, out_frame_idx = outputs
+        video_segments, out_frame_idx, object_id = outputs
         # Update progress bar
         self.update_pbar()
         # Update mask layer with the new masks
+        # FIXME: That probs isn't how video_segments is structured, probs default ID (0)
         self.update_prompt_masks(
-            out_obj_ids=video_segments[out_frame_idx],
+            out_obj_ids=video_segments[(object_id, out_frame_idx)],
             frame_idx=out_frame_idx,
         )
         # Move Napari viewer to this frame to show the new masks

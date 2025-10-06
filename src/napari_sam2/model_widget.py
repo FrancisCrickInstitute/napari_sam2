@@ -83,7 +83,7 @@ class ModelWidget(SAM2Subwidget):
         self.loaded_model = None
         self.memory_mode = None
         # SAM2 model objects
-        self.inference_state = None
+        self.inference_states = {}  # dict: object_id -> inference_state
         self.sam2_model = None
 
         self.device = get_device()
@@ -240,7 +240,7 @@ class ModelWidget(SAM2Subwidget):
             show_error("Please load a model first!")
             return False
         # Reset state if present
-        if self.inference_state is not None:
+        if self.inference_states:
             self.reset_model()
         # Clear all previous prompts
         self.parent.subwidgets["prompt"].prompt_dict = {}
@@ -279,9 +279,11 @@ class ModelWidget(SAM2Subwidget):
                     enabled=self.device.type == "cuda",
                 ),
             ):
-                self.inference_state = self.sam2_model.init_state(
-                    video_path=str(self.frame_folder), **kwargs
-                )
+                # Instead of a single inference_state, create a dict for each object_id
+                # For now, initialize empty; will be filled as objects are added
+                # FIXME: Need to do some kind of initialization here, but see later
+                # comment on abstracting this out, for whatever is needed to link states?
+                self.inference_states = {}
 
         _init_state(self, kwargs)
 
@@ -377,7 +379,7 @@ class ModelWidget(SAM2Subwidget):
         self.check_model_load_btn()
 
     def add_point_prompt(self, object_id, prompt_dict, frame_idx):
-        # Add new points to model
+        # Add new points to model for a specific object_id
         # NOTE: SAM2 notebook says "we need to send all the clicks and their labels (i.e. not just the last click) when calling add_new_points_or_box"
         # So we pass the entire prompt_dict for this object_id for this frame, not just the new point
         # Convert our lists into numpy arrays for SAM2
@@ -387,6 +389,20 @@ class ModelWidget(SAM2Subwidget):
         labels = np.array(
             prompt_dict[object_id][frame_idx]["labels"], dtype=np.int32
         )
+        # Initialize inference_state for this object if not present
+        if object_id not in self.inference_states:
+            # TODO: Abstract out state initialization to a separate method
+            with (
+                torch.inference_mode(),
+                torch.autocast(
+                    self.device.type,
+                    dtype=torch.bfloat16,
+                    enabled=self.device.type == "cuda",
+                ),
+            ):
+                self.inference_states[object_id] = self.sam2_model.init_state(
+                    video_path=str(self.frame_folder)
+                )
         with (
             torch.inference_mode(),
             torch.autocast(
@@ -397,7 +413,7 @@ class ModelWidget(SAM2Subwidget):
         ):
             _, out_obj_ids, out_mask_logits = (
                 self.sam2_model.add_new_points_or_box(
-                    inference_state=self.inference_state,
+                    inference_state=self.inference_states[object_id],
                     frame_idx=frame_idx,
                     obj_id=object_id,
                     points=points,
@@ -413,17 +429,23 @@ class ModelWidget(SAM2Subwidget):
         return out_obj_ids
 
     def reset_model(self):
-        # TODO: Add option for less blunt approach, removing larger parts of inference_state dict?
-        self.sam2_model.reset_state(self.inference_state)
+        # Reset all inference states
+        for state in self.inference_states.values():
+            self.sam2_model.reset_state(state)
+        self.inference_states = {}
 
     def remove_object_from_model(self, object_id):
-        self.sam2_model.remove_object(
-            self.inference_state, object_id, need_output=False
-        )
+        if object_id in self.inference_states:
+            # FIXME: The object_id in each state is actually probably 0, the default ID
+            self.sam2_model.remove_object(
+                self.inference_states[object_id], object_id, need_output=False
+            )
+            del self.inference_states[object_id]
 
     def remove_object_from_frame(self, object_id, frame_idx):
         # TODO: Investigate whether we could use need_output=True here
         # And then update the segmentation immediately?
+        # TODO: Would need to clear each inference_state, and the default ID on each
         self.sam2_model.clear_all_prompts_in_frame(
             self.inference_state,
             frame_idx=frame_idx,
@@ -437,14 +459,14 @@ class ModelWidget(SAM2Subwidget):
         shutil.rmtree(self.frame_temp_dir)
 
     def check_memory(self):
-        # Check current VRAM usage and purge inference_state if close to limit
+        # Check current VRAM usage and purge inference_states if close to limit
         # Despite changes, each frame consumes some memory so for very long videos we need remove some bits
         # NOTE: This only works with CUDA. Apple is RAM-bound, and CPU is...not great.
         # TODO: Enable this for Mac by checking system memory instead, even though mine is always >90%
         if not self.device.type == "cuda":
             return
         free_bytes, total_bytes = torch.cuda.mem_get_info()
-        # If we're using more than 90% of VRAM, clear the inference state
+        # If we're using more than 90% of VRAM, clear the inference states
         if free_bytes / total_bytes < 0.1:
             self.reset_model()
             show_info("Approaching GPU memory limit. Resetting model.")
