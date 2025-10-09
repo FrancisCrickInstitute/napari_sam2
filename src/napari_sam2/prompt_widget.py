@@ -7,6 +7,7 @@ from app_model.types import KeyCode
 from napari.layers.base import no_op
 from napari.layers.points._points_constants import Mode
 from napari.qt.threading import thread_worker
+from napari._qt.layer_controls.widgets._labels import QtLabelControl
 from napari.utils.colormaps import label_colormap
 from napari.utils.notifications import show_error, show_info
 from napari.utils.translations import trans
