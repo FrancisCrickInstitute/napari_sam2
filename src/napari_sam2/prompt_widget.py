@@ -7,6 +7,7 @@ from app_model.types import KeyCode
 from napari.layers.base import no_op
 from napari.layers.points._points_constants import Mode
 from napari.qt.threading import thread_worker
+from napari._qt.layer_controls.widgets._labels import QtLabelControl
 from napari.utils.colormaps import label_colormap
 from napari.utils.notifications import show_error, show_info
 from napari.utils.translations import trans
@@ -98,10 +99,21 @@ class PromptWidget(SAM2Subwidget):
         self.create_prompt_layers_btn.clicked.connect(
             self.create_prompt_layers
         )
-        self.reset_prompt_layers_btn = QPushButton("Clear Layers")
+        self.reset_prompt_layers_slice_btn = QPushButton("Clear/Reset Slice")
+        self.reset_prompt_layers_slice_btn.clicked.connect(
+            self.reset_prompt_layers_slice
+        )
+        self.reset_prompt_layers_slice_btn.setToolTip(
+            format_tooltip(
+                "Clear all prompts and masks for the current slice/frame. Warning: this will delete all current prompts and masks for this slice/frame!"
+            )
+        )
+        self.reset_prompt_layers_btn = QPushButton("Clear/Reset Layers")
         self.reset_prompt_layers_btn.clicked.connect(self.reset_prompt_layers)
         self.reset_prompt_layers_btn.setToolTip(
-            format_tooltip("Clear all prompt layers")
+            format_tooltip(
+                "Clear all prompt layers and reset model state. Warning: this will delete all current prompts and masks!"
+            )
         )
         self.store_prompt_layers_btn = QPushButton("Store Layers")
         self.store_prompt_layers_btn.clicked.connect(self.store_prompt_layers)
@@ -148,14 +160,15 @@ class PromptWidget(SAM2Subwidget):
         # Add the buttons to the layout
         self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 3)
         self.layout.addWidget(self.manual_segment_btn, 0, 3, 1, 3)
-        self.layout.addWidget(self.create_prompt_layers_btn, 1, 0, 1, 3)
-        self.layout.addWidget(self.reset_prompt_layers_btn, 1, 3, 1, 3)
-        self.layout.addWidget(self.store_prompt_layers_btn, 2, 0, 1, 3)
-        self.layout.addWidget(self.load_prompt_layers_btn, 2, 3, 1, 3)
-        self.layout.addWidget(self.video_propagate_btn, 3, 0, 1, 2)
-        self.layout.addWidget(self.propagate_direction_box, 3, 2, 1, 2)
-        self.layout.addWidget(self.cancel_prop_btn, 3, 4, 1, 2)
-        self.layout.addLayout(pbar_layout, 4, 0, 1, 6)
+        self.layout.addWidget(self.create_prompt_layers_btn, 1, 1, 1, 4)
+        self.layout.addWidget(self.reset_prompt_layers_slice_btn, 2, 0, 1, 3)
+        self.layout.addWidget(self.reset_prompt_layers_btn, 2, 3, 1, 3)
+        self.layout.addWidget(self.store_prompt_layers_btn, 3, 0, 1, 3)
+        self.layout.addWidget(self.load_prompt_layers_btn, 3, 3, 1, 3)
+        self.layout.addWidget(self.video_propagate_btn, 4, 0, 1, 2)
+        self.layout.addWidget(self.propagate_direction_box, 4, 2, 1, 2)
+        self.layout.addWidget(self.cancel_prop_btn, 4, 4, 1, 2)
+        self.layout.addLayout(pbar_layout, 5, 0, 1, 6)
 
     def create_prompt_layers(self):
         # NOTE: We want to add labels first so that points is "above", and are better seen
@@ -232,31 +245,63 @@ class PromptWidget(SAM2Subwidget):
         and then connect the Labels ones to events that updates the Points ones
         """
         labels_layer = self.viewer.layers[self.label_layer_name]
-        # Extract the original colourbox and spinbox from the Labels layer
-        og_colourbox = self.viewer.window.qt_viewer.controls.widgets[
-            labels_layer
-        ].colorBox
-        og_spinbox = self.viewer.window.qt_viewer.controls.widgets[
-            labels_layer
-        ].selectionSpinBox
-        # Create a new colourbox for the same layer
-        self.colourbox = og_colourbox.__class__(labels_layer)
-        # Copy of the spinbox is just a label that we'll update
-        self.spinbox = QLabel(str(og_spinbox.value()))
-        og_spinbox.valueChanged.connect(self._update_spinbox)
-        # Create a layout to hold the colourbox and spinbox
-        # Follows https://github.com/napari/napari/blob/dd734935182891ca6fbe9e14f76c87eae75ce6cc/napari/_qt/layer_controls/qt_labels_controls.py#L268
+        colourbox_widget = QtLabelControl(
+            self.viewer.window.qt_viewer.controls.widgets[labels_layer],
+            labels_layer,
+        )
         colourbox_layout = QHBoxLayout()
-        colourbox_layout.addWidget(self.colourbox)
-        colourbox_layout.addWidget(self.spinbox)
+        colourbox_layout.addWidget(colourbox_widget.colorbox)
+        colourbox_layout.addWidget(colourbox_widget.selection_spinbox)
+
         # Now add it to the new points layer
         self.viewer.window.qt_viewer.controls.widgets[layer].layout().addRow(
             trans._("label:"), colourbox_layout
         )
 
-    def _update_spinbox(self, value):
-        # Update the spinbox value
-        self.spinbox.setText(str(value))
+    def remove_objects_from_frames(
+        self, object_ids: int | list[int], frame_idxs: int | list[int]
+    ):
+        # Just make it easier to handle single or multiple object IDs and frame indices
+        if not isinstance(object_ids, list):
+            object_ids = [object_ids]
+        if not isinstance(frame_idxs, list):
+            frame_idxs = [frame_idxs]
+
+        for obj_id in object_ids:
+            # If this object doesn't exist in prompts at all, ensure all traces of it are removed from the mask & model
+            if obj_id not in self.prompts:
+                # TODO: Refactor alongside on_data_change to avoid code duplication
+                label_layer = self.viewer.layers[self.label_layer_name]
+                full_arr = label_layer.data
+                full_arr[full_arr == obj_id] = 0
+                label_layer.data = full_arr
+                # Now trigger a complete SAM2 object removal
+                self.parent.subwidgets["model"].remove_object_from_model(
+                    object_id=obj_id
+                )
+            # Otherwise we check the relevant frames
+            for frame_idx in frame_idxs:
+                # If this object doesn't exist on this frame, skip
+                if (
+                    obj_id not in self.prompts
+                    or frame_idx not in self.prompts[obj_id]
+                ):
+                    continue
+                # Remove this object from this mask on this frame
+                label_layer = self.viewer.layers[self.label_layer_name]
+                full_arr = label_layer.data
+                full_arr[frame_idx][full_arr[frame_idx] == obj_id] = 0
+                label_layer.data = full_arr
+                # Trigger SAM2 to remove object from this frame
+                self.parent.subwidgets["model"].remove_object_from_frame(
+                    object_id=obj_id, frame_idx=frame_idx
+                )
+                # Now update our prompt dict to remove all prompts for this object on this frame
+                self.prompts[obj_id].pop(frame_idx)
+        # Clean up prompts dict if needed
+        for obj_id in object_ids:
+            if obj_id in self.prompts and len(self.prompts[obj_id]) == 0:
+                self.prompts.pop(obj_id)
 
     def on_data_change(self, event):
         # This is only for handling removal of points from our prompt dict
@@ -307,7 +352,7 @@ class PromptWidget(SAM2Subwidget):
                     self.parent.subwidgets["model"].remove_object_from_frame(
                         object_id=obj_id, frame_idx=frame_idx
                     )
-                # Otherwise the prompts for this object has changed so we need to resegment
+                # Otherwise the prompts for this object have changed so we need to resegment
                 else:
                     # NOTE: We get more intuitive results if we first clear this object and then re-add all points
                     # Otherwise, the model still has memory of the old points and they have a small lingering effect
@@ -515,6 +560,24 @@ class PromptWidget(SAM2Subwidget):
                     self.update_prompt_masks(out_obj_ids, frame_idx)
                     # Now update the prompt_dict to show that this prompt has been processed
                     self.prompts[obj_id][frame_idx]["processed"] = True
+
+    def reset_prompt_layers_slice(self):
+        # Clear all prompts and masks for the current slice/frame
+        # Get current frame index
+        frame_idx = self.viewer.dims.current_step[0]
+        # Remove all points from the Points layer for this frame
+        point_layer = self.viewer.layers[self.point_layer_name]
+        if point_layer.data is not None and len(point_layer.data) > 0:
+            # Get indices of points to remove
+            idxs_to_remove = np.where(point_layer.data[:, 0] == frame_idx)[0]
+            if len(idxs_to_remove) > 0:
+                with point_layer.events.data.blocker():
+                    point_layer.remove(idxs_to_remove)
+                point_layer.refresh()
+        # Remove all relevant masks from the Labels layer & prompt dict
+        self.remove_objects_from_frames(
+            object_ids=list(self.prompts.keys()), frame_idxs=frame_idx
+        )
 
     def reset_prompt_layers(self):
         # NOTE: To avoid triggering data change events, we delete the layers and recreate them

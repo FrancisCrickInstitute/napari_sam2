@@ -1,4 +1,4 @@
-# napari-sam2
+# Enhanced SAM2 Napari Plugin
 
 > [!NOTE]
 > This is a **work in progress** as part of a live project within the SEAI STP. If you come across this repo and are interested please contact [Cameron Shand](mailto:cameron.shand@crick.ac.uk).
@@ -26,8 +26,24 @@ You can install `napari-sam2` from this repo via:
 
     pip install git+https://github.com/FrancisCrickInstitute/napari_sam2.git
 
-> [!NOTE]  
-> If you are at the Crick, and wish to run this on NEMO, you can create a conda environment using the provided YAML file `napari_sam_env.yaml`, or use the dedicated OnDemand app.
+### Crick Installation
+If you're at the Crick, and want to use `napari-sam2` (before it's been handily wrapped into a premade app), here's what you need to do.
+
+1. Start an OnDemand Nemo Desktop session on the GPU partition
+2. Create a conda environment and install what's needed (first time only)
+    1. `conda create -n napari_sam2 python=3.11`
+    2. `conda activate napari_sam2`
+    3. `conda install nvidia/label/cuda-12.6.0::cuda-toolkit`
+    4. `pip install 'napari[all]'`
+    5. `pip install git+https://github.com/FrancisCrickInstitute/napari_sam2.git`
+3. Load modules we need (every time)
+    1. `ml cuDNN/9.5.0.50-CUDA-12.6.0`
+    2. `ml VirtualGL`
+4. Run napari: `vglrun napari`
+
+If you have any issues with the above, likely a `Disk quota exceeded`, you need to ensure that your `.conda` and `.cache` folders in your home directory are symlinked somewhere with more space. Ask HPC if you are unsure how to do this.
+
+Any other issues, contact me!
 
 ## Usage
 For guidance on best usage and further detail on features such as the "low-memory mode", please see the [Usage Guide](USAGE.md).
@@ -35,7 +51,9 @@ For guidance on best usage and further detail on features such as the "low-memor
 ## Existing To-Dos
 - Add support for bounding box prompt input
 - Add support for adding masks to guide prompts (low priority)
-- Properly handle movement of existing point prompts
+- Tutorial video on usage
+- Completed documentation and [usage guide](USAGE.md)
+- Fix SAM2's inability to deal with new objects being prompted after first conditioning frame
 
 ## Contributing
 Contributions are very welcome. Tests can be run with [tox], please ensure

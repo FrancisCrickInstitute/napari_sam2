@@ -23,6 +23,7 @@ from qtpy.QtWidgets import (
 from qtpy import QtCore
 import requests
 from sam2.build_sam import build_sam2_video_predictor
+from skimage.util import img_as_ubyte
 import torch
 
 from napari_sam2.subwidget import SAM2Subwidget
@@ -336,14 +337,22 @@ class ModelWidget(SAM2Subwidget):
             if expected_num_frames == 1:
                 # 2D image
                 # Save the image as a single frame
-                slice_arr = Image.fromarray(layer.data)
+                if layer.data.dtype != np.uint8:
+                    # Convert to uint8 for saving as JPEG
+                    slice_arr = Image.fromarray(img_as_ubyte(layer.data))
+                else:
+                    slice_arr = Image.fromarray(layer.data)
                 # TODO: Check image mode and whether this can be written as JPEG
                 # 16-bit cannot be written as JPEG
                 slice_arr.save(f"{self.frame_folder}/{0:05d}.jpg")
             else:
                 # Otherwise loop over and save each frame/slice as SAM2 expects
                 for i, frame in enumerate(layer.data):
-                    slice_arr = Image.fromarray(frame)
+                    if frame.dtype != np.uint8:
+                        # Convert to uint8 for saving as JPEG
+                        slice_arr = Image.fromarray(img_as_ubyte(frame))
+                    else:
+                        slice_arr = Image.fromarray(frame)
                     slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
 
     def check_model_load_btn(self, model_type: Optional[str] = None):
