@@ -375,12 +375,13 @@ class PromptWidget(SAM2Subwidget):
             # Be explicit with layer and avoid event source stuff
             points_layer = self.viewer.layers[self.point_layer_name]
             # Avoid retrigger
-            with points_layer.events.data.blocker():
+            with (
+                points_layer.events.blocker(),
+                points_layer.events.data.blocker(),
+            ):
                 # Ensure only triggered when points have been moved
                 if self.moved_point_idxs is not None:
-                    points_layer.data[list(self.moved_point_idxs)] = (
-                        self.moved_point_locs.squeeze()
-                    )
+                    points_layer.data = self.moved_point_locs
                     # Now reset to ensure clean between drags
                     self.moved_point_idxs = None
                     self.moved_point_locs = None
