@@ -95,6 +95,25 @@ class ModelWidget(SAM2Subwidget):
         self.destroyed.connect(self.on_close)
 
     def create_widgets(self):
+        if self.device.type == "cuda":
+            device_txt = f"Device: {self.device.type.upper()} (CUDA Enabled!)"
+        else:
+            device_txt = (
+                f"Device: {self.device.type.upper()} (CUDA Not Available!)"
+            )
+        self.device_label = QLabel(device_txt)
+        self.device_label.setAlignment(
+            QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter
+        )
+        self.device_label.setToolTip(
+            format_tooltip(
+                """
+The device being used for model inference. CUDA (NVIDIA GPU) is recommended but not required.
+If you have a GPU but it is not being used, please check your PyTorch installation.
+                """
+            )
+        )
+
         self.model_label = QLabel("Model Version:")
         self.model_label.setAlignment(
             QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
@@ -160,13 +179,14 @@ class ModelWidget(SAM2Subwidget):
         self.model_type = self.model_combo.currentText()
 
         # Add widgets to layout
-        self.layout.addWidget(self.model_label, 0, 0, 1, 1)
-        self.layout.addWidget(self.model_combo, 0, 1, 1, 1)
-        self.layout.addWidget(self.download_loc_btn, 1, 0, 1, 1)
-        self.layout.addWidget(self.download_loc_text, 1, 1, 1, 1)
-        self.layout.addWidget(self.low_memory_cb, 2, 0, 1, 1)
-        self.layout.addWidget(self.super_low_memory_cb, 3, 0, 1, 1)
-        self.layout.addWidget(self.load_btn, 2, 1, 2, 1)
+        self.layout.addWidget(self.device_label, 0, 0, 1, 2)
+        self.layout.addWidget(self.model_label, 1, 0, 1, 1)
+        self.layout.addWidget(self.model_combo, 1, 1, 1, 1)
+        self.layout.addWidget(self.download_loc_btn, 2, 0, 1, 1)
+        self.layout.addWidget(self.download_loc_text, 2, 1, 1, 1)
+        self.layout.addWidget(self.low_memory_cb, 3, 0, 1, 1)
+        self.layout.addWidget(self.super_low_memory_cb, 4, 0, 1, 1)
+        self.layout.addWidget(self.load_btn, 3, 1, 2, 1)
 
     def _check_model_exists(self):
         # Get current model type
