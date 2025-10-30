@@ -173,8 +173,10 @@ class PromptWidget(SAM2Subwidget):
     def create_prompt_layers(self):
         # NOTE: We want to add labels first so that points is "above", and are better seen
         # Best to separate for easier use later when loading prompts
-        self.create_label_layer()
-        self.create_points_layer()
+        llayer = self.create_label_layer()
+        player = self.create_points_layer()
+        return llayer, player
+
 
     def create_label_layer(self):
         # Skip if the layer already exists
@@ -191,11 +193,13 @@ class PromptWidget(SAM2Subwidget):
             if self.viewer.layers[current_image].rgb:
                 image_shape = image_shape[:-1]
         # Ensure that the prompt layer label cmap is the same as for the Points layer
-        self.viewer.add_labels(
+        llayer = self.viewer.add_labels(
             np.zeros(image_shape, dtype=np.uint8),
             name=self.label_layer_name,
             colormap=self.global_colour_cycle,
         )
+
+        return llayer
 
     def create_points_layer(self):
         # Colour cycle for positive and negative prompts
@@ -234,6 +238,7 @@ class PromptWidget(SAM2Subwidget):
         points_layer.bind_key(KeyCode.Minus, self.on_decrease_label)
         points_layer.bind_key(KeyCode.KeyM, self.select_max_label)
         self._duplicate_colourbox_control(points_layer)
+        return points_layer
 
     def _duplicate_colourbox_control(self, layer):
         """

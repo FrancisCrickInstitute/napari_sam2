@@ -304,7 +304,7 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                     video_path=str(self.frame_folder), **kwargs
                 )
 
-        _init_state(self, kwargs)
+        return _init_state(self, kwargs)
 
     def change_download_loc(self):
         new_dir = QFileDialog.getExistingDirectory(
