@@ -284,6 +284,8 @@ If you have a GPU but it is not being used, please check your PyTorch installati
             kwargs["offload_state_to_cpu"] = True
             kwargs["offload_video_to_cpu"] = True
             kwargs["async_loading_frames"] = True
+        if self.device.type != "cuda":
+            kwargs["only_obj_ptrs_in_the_past_for_eval"] = False
         show_info("Calculating embeddings...")
 
         @thread_worker(
@@ -306,7 +308,7 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                     video_path=str(self.frame_folder), **kwargs
                 )
 
-        _init_state(self, kwargs)
+        return _init_state(self, kwargs)
 
     def change_download_loc(self):
         new_dir = QFileDialog.getExistingDirectory(
