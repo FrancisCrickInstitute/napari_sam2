@@ -267,7 +267,9 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         self.parent.subwidgets["prompt"].prompt_dict = {}
         # Double-check the above as notebook is poss out of date?
         # Probably best to keep frame generation stuff separate from custom reader to delay computation
-        self.create_frames()
+        success = self.create_frames()
+        if not success:
+            return
         # Set kwargs based on memory mode option
         kwargs = {}
         # NOTE: These are defaults, we're just being explicit
@@ -334,6 +336,12 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         elif layer.data.ndim == 4:
             # Otherwise we hope that first channel is slices/frames
             expected_num_frames = layer.data.shape[0]
+            expected_num_channels = layer.data.shape[1]
+            if expected_num_channels not in [1, 3]:
+                show_error(
+                    "Data has more than 3 channels. Please select a single channel or RGB data."
+                )
+                return False
         # Create frame folder for this specific image layer
         self.frame_folder = self.frame_temp_dir / layer.name.split(".")[0]
         self.frame_folder.mkdir(exist_ok=True)
@@ -343,7 +351,7 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         # NOTE: If a file has the same name and size as something else, this will be wrong
         # But that's unlikely...right?
         if num_frames == expected_num_frames:
-            return
+            return True
         else:
             show_info("Extracting frames from video...")
             # If any frames do exist, delete them to be safe
@@ -372,6 +380,7 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                     else:
                         slice_arr = Image.fromarray(frame)
                     slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
+        return True
 
     def check_model_load_btn(self, model_type: Optional[str] = None):
         if model_type is None:
