@@ -22,6 +22,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QProgressBar,
     QLabel,
+    QSpinBox
 )
 import skimage.io
 import torch
@@ -129,7 +130,15 @@ class PromptWidget(SAM2Subwidget):
         )
         # TODO: Add a spinbox here for max frame number to propagate to
         # Will need to add some validation...
-        self.max_frame_spinbox = None
+        self.max_frame_label = QLabel("Max\nFrames")
+        self.max_frame_spinbox = QSpinBox()
+        self.max_frame_spinbox.setSpecialValueText("(auto)")
+        self.max_frame_spinbox.setToolTip(
+            format_tooltip(
+                # TODO: how to word the default value? "defaults to max possible" or "continues to end/start by default" or smth
+                "Maximum number of frames to propagate for"
+            )
+        )
         self.propagate_direction_box = QCheckBox("Reverse\nPropagation")
         self.propagate_direction_box.setChecked(False)
         self.propagate_direction_box.setToolTip(
@@ -168,7 +177,9 @@ class PromptWidget(SAM2Subwidget):
         self.layout.addWidget(self.video_propagate_btn, 4, 0, 1, 2)
         self.layout.addWidget(self.propagate_direction_box, 4, 2, 1, 2)
         self.layout.addWidget(self.cancel_prop_btn, 4, 4, 1, 2)
-        self.layout.addLayout(pbar_layout, 5, 0, 1, 6)
+        self.layout.addWidget(self.max_frame_label, 5, 3, 1, 3)
+        self.layout.addWidget(self.max_frame_spinbox, 5, 3, 1, 3)
+        self.layout.addLayout(pbar_layout, 6, 0, 1, 6)
 
     def create_prompt_layers(self):
         # NOTE: We want to add labels first so that points is "above", and are better seen
@@ -774,15 +785,18 @@ class PromptWidget(SAM2Subwidget):
         # Now propagate the prompts across the video from this frame
         # In the direction specified by the checkbox
         # TODO: Expose max_frame_num_to_track to potentially limit the number of frames to propagate
+        # 0 is a special value which means "auto" -> set to None
+        max_frame_num_to_track = self.max_frame_spinbox.value() or None
+        
         sam2_model = self.parent.subwidgets["model"].sam2_model
         inference_state = self.parent.subwidgets["model"].inference_state
         # Initialise progress bars with the number of frames to propagate
         reverse = self.propagate_direction_box.isChecked()
-        if reverse:
-            # If we include max_frame_num_to_track, max(first_frame - max_num, 0)
-            num_frames = first_frame
-        else:
-            num_frames = inference_state["num_frames"] - first_frame
+        num_frames = min(
+            first_frame if reverse else inference_state["num_frames"] - first_frame, 
+            max_frame_num_to_track or np.inf
+        )
+            
         self.init_pbar(num_frames=num_frames)
 
         @thread_worker(
@@ -795,6 +809,7 @@ class PromptWidget(SAM2Subwidget):
             sam2_model,
             inference_state,
             first_frame,
+            max_frames,
             reverse,
             device,
             low_memory,
@@ -814,6 +829,7 @@ class PromptWidget(SAM2Subwidget):
                 ) in sam2_model.propagate_in_video(
                     inference_state,
                     start_frame_idx=first_frame,
+                    max_frame_num_to_track=max_frames,
                     reverse=reverse,
                 ):
                     video_segments[out_frame_idx] = {
@@ -846,6 +862,7 @@ class PromptWidget(SAM2Subwidget):
             sam2_model,
             inference_state,
             first_frame,
+            max_frame_num_to_track,
             reverse,
             device=self.parent.subwidgets["model"].device,
             low_memory=self.parent.subwidgets["model"].memory_mode
