@@ -130,6 +130,19 @@ class PromptWidget(SAM2Subwidget):
         )
         # TODO: Add a spinbox here for max frame number to propagate to
         # Will need to add some validation...
+        self.start_frame_label = QLabel("Start\nFrame")
+        self.start_frame_spinbox = QSpinBox()
+        self.start_frame_spinbox.setSpecialValueText("(auto)")
+        self.start_frame_spinbox.setToolTip(
+            format_tooltip(
+                "Starting frame for propagation"
+            )
+        )
+        self.start_frame_current_btn = QPushButton("Set To\nCurrent")
+        self.start_frame_current_btn.clicked.connect(lambda: self.set_start_frame())
+        self.start_frame_current_btn.setToolTip(
+            format_tooltip("Set propagation start frame to currently displayed position")
+        )
         self.max_frame_label = QLabel("Max\nFrames")
         self.max_frame_spinbox = QSpinBox()
         self.max_frame_spinbox.setSpecialValueText("(auto)")
@@ -177,8 +190,11 @@ class PromptWidget(SAM2Subwidget):
         self.layout.addWidget(self.video_propagate_btn, 4, 0, 1, 2)
         self.layout.addWidget(self.propagate_direction_box, 4, 2, 1, 2)
         self.layout.addWidget(self.cancel_prop_btn, 4, 4, 1, 2)
-        self.layout.addWidget(self.max_frame_label, 5, 3, 1, 3)
-        self.layout.addWidget(self.max_frame_spinbox, 5, 3, 1, 3)
+        self.layout.addWidget(self.start_frame_label, 5, 0, 1, 1)
+        self.layout.addWidget(self.start_frame_spinbox, 5, 1, 1, 1)
+        self.layout.addWidget(self.start_frame_current_btn, 5, 2, 1, 1)
+        self.layout.addWidget(self.max_frame_label, 5, 3, 1, 1)
+        self.layout.addWidget(self.max_frame_spinbox, 5, 4, 1, 1)
         self.layout.addLayout(pbar_layout, 6, 0, 1, 6)
 
     def create_prompt_layers(self):
@@ -767,6 +783,12 @@ class PromptWidget(SAM2Subwidget):
         else:
             label_layer.selected_label = new_max_label
 
+    def set_start_frame(self, idx=None):
+        if idx is None:
+            # set to currently displayed slice
+            idx = self.viewer.dims.current_step[0]
+        self.start_frame_spinbox.setValue(idx)
+
     def video_propagate(self):
         # Reset flag to cancel the propagation
         # NOTE: We do it here to ensure after final yield we still reset the progress bar
@@ -776,7 +798,8 @@ class PromptWidget(SAM2Subwidget):
         # This should just be a trigger of SAM2 propagation
         video_segments = {}
         # Get the first frame that we have prompts for
-        first_frame = min(
+        user_start_frame = self.start_frame_spinbox.value()
+        first_frame = user_start_frame if user_start_frame != -1 else min(
             [
                 min(self.prompts[obj_id].keys())
                 for obj_id in self.prompts.keys()

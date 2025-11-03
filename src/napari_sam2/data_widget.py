@@ -90,7 +90,13 @@ class DataWidget(SAM2Subwidget):
             ].max_frame_spinbox.setMaximum(
                 self.parent.subwidgets["model"].inference_state["num_frames"]-1
             )
-
+        
+        self.parent.subwidgets[
+                "prompt"
+            ].start_frame_spinbox.setRange(
+                -1, # special value, for auto mode
+                self.parent.subwidgets["model"].inference_state["num_frames"] # Treat as 1-indexed to allow special value
+            )    
 
     def layer_added(self, event):
         if isinstance(event.value, Image):
