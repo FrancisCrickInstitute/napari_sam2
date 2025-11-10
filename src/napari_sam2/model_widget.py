@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     import napari
 
 SAM2_BASE_URL = "https://dl.fbaipublicfiles.com/segment_anything_2/092824"
+MEDSAM2_BASE_URL = "https://huggingface.co/wanglab/MedSAM2/resolve/main"
 SAM2_CONFIG_DIR = files("napari_sam2.sam2_configs")
 MODEL_DICT = {
     "Base Plus": {
@@ -51,6 +52,10 @@ MODEL_DICT = {
         "filename": "sam2.1_hiera_tiny.pt",
         "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t.yaml"),
     },
+    "MedSAM2 latest": {
+        "filename":  "MedSAM2_latest.pt",
+        "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t512.yaml"),
+    }
 }
 
 
@@ -234,7 +239,10 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         show_info(f"Downloading {self.model_type} model...")
         model_dict = MODEL_DICT[self.model_type]
         # Download the model
-        model_url = f"{SAM2_BASE_URL}/{model_dict['filename']}"
+        if "MedSAM2" in self.model_type:
+            model_url = f"{MEDSAM2_BASE_URL}/{model_dict['filename']}"
+        else:
+            model_url = f"{SAM2_BASE_URL}/{model_dict['filename']}"
         # Open the URL and get the content length
         req = requests.get(model_url, stream=True)
         req.raise_for_status()
