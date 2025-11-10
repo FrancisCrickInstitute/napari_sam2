@@ -17,13 +17,18 @@ from qtpy.QtWidgets import (
     QWidget,
     QLayout,
     QHBoxLayout,
+    QVBoxLayout,
     QPushButton,
     QFileDialog,
     QCheckBox,
     QProgressBar,
     QLabel,
-    QSpinBox
+    QSpinBox,
+    QSlider,
+    QButtonGroup,
+    QRadioButton
 )
+from qtpy.QtCore import Qt
 import skimage.io
 import torch
 from tqdm import tqdm
@@ -120,7 +125,9 @@ class PromptWidget(SAM2Subwidget):
         self.store_prompt_layers_btn.clicked.connect(self.store_prompt_layers)
         self.load_prompt_layers_btn = QPushButton("Load Layers")
         self.load_prompt_layers_btn.clicked.connect(self.load_prompt_layers)
-        # Buttons/boxes for video propagation
+        
+        ## Buttons/boxes for video propagation
+        # Start propagate
         self.video_propagate_btn = QPushButton("Propagate\nPrompts")
         self.video_propagate_btn.clicked.connect(self.video_propagate)
         self.video_propagate_btn.setToolTip(
@@ -128,30 +135,78 @@ class PromptWidget(SAM2Subwidget):
                 "Propagate the given prompts across the entire video. This may take some time."
             )
         )
-        # TODO: Add a spinbox here for max frame number to propagate to
-        # Will need to add some validation...
+        ##  Limiting propagation range
+        # Starting frame
         self.start_frame_label = QLabel("Start\nFrame")
         self.start_frame_spinbox = QSpinBox()
+        # spinbox autoconstructed with value 0. Want minium value -1 to represent automatic scenario where start frame is selected based on prompt locations
+        self.start_frame_spinbox.setMinimum(-1)
+        self.start_frame_spinbox.setValue(-1)
         self.start_frame_spinbox.setSpecialValueText("(auto)")
         self.start_frame_spinbox.setToolTip(
             format_tooltip(
                 "Starting frame for propagation"
             )
         )
-        self.start_frame_current_btn = QPushButton("Set To\nCurrent")
+        self.start_frame_current_btn = QPushButton("Set To Current")
         self.start_frame_current_btn.clicked.connect(lambda: self.set_start_frame())
         self.start_frame_current_btn.setToolTip(
             format_tooltip("Set propagation start frame to currently displayed position")
         )
-        self.max_frame_label = QLabel("Max\nFrames")
+        # Max number of frames OR end frames
+        self.end_frame_mode_btn = QRadioButton()
+        self.end_frame_mode_btn.setText("End frame")
+        self.end_frame_mode_btn.setChecked(True) # Default mode is to set end frame index
+        self.max_frame_mode_btn = QRadioButton()
+        self.max_frame_mode_btn.setText("Max frames")
+        self.max_frame_mode_btn.setEnabled(False)
+        self.max_frame_mode_btn.setToolTip("This setting is under development")
+        
+        self.prop_frames_radio_btns = QButtonGroup()       
+        self.prop_frames_radio_btns.addButton(self.end_frame_mode_btn)
+        self.prop_frames_radio_btns.addButton(self.max_frame_mode_btn)
+        
+        # self.max_frame_label = QLabel("Max\nFrames")
         self.max_frame_spinbox = QSpinBox()
         self.max_frame_spinbox.setSpecialValueText("(auto)")
         self.max_frame_spinbox.setToolTip(
             format_tooltip(
                 # TODO: how to word the default value? "defaults to max possible" or "continues to end/start by default" or smth
-                "Maximum number of frames to propagate for"
+                "Maximum number of frames to propagate for or propagation end frame"
             )
         )
+        # self.max_frame_spinbox.valueChanged.connect(self.set_max_or_end)
+        
+        self.end_frame_current_btn = QPushButton("Set To Current")
+        self.end_frame_current_btn.clicked.connect(lambda: self.set_end_frame())
+
+        # Disable "set to current" button if using number of frames 
+        self.max_frame_mode_btn.toggled.connect(lambda: 
+            self.end_frame_current_btn.setEnabled(not self.end_frame_current_btn.isEnabled())
+        )
+        
+        range_ctl_layout_1 = QVBoxLayout()
+        range_ctl_layout_1.setSpacing(1)
+        range_ctl_layout_1.addWidget(self.start_frame_spinbox)
+        range_ctl_layout_1.addWidget(self.start_frame_current_btn)
+        
+        # Range slider linked to display
+        # self.prop_range_slider = QSlider(Qt.Orientation.Horizontal)
+        # self.prop_range_slider.setRange(0,20)
+        # self.prop_range_slider.setTickInterval(1)
+        # self.prop_range_slider.setTracking(True)
+        # self.prop_range_slider.valueChanged.connect(self._track_end_frame)
+        
+        range_ctl_layout_2 = QVBoxLayout()
+        range_ctl_layout_2.setSpacing(1)
+        range_ctl_layout_2.addWidget(self.end_frame_mode_btn)
+        range_ctl_layout_2.addWidget(self.max_frame_mode_btn)
+        range_ctl_layout_3 = QVBoxLayout()
+        range_ctl_layout_3.setSpacing(1)
+        range_ctl_layout_3.addWidget(self.max_frame_spinbox)
+        range_ctl_layout_3.addWidget(self.end_frame_current_btn)
+           
+        # Propagation direction
         self.propagate_direction_box = QCheckBox("Reverse\nPropagation")
         self.propagate_direction_box.setChecked(False)
         self.propagate_direction_box.setToolTip(
@@ -159,6 +214,7 @@ class PromptWidget(SAM2Subwidget):
                 "Reverse the direction of propagation across the video"
             )
         )
+        # Cancelleation
         self.cancel_prop_btn = QPushButton("Cancel\nPropagation")
         self.cancel_prop_btn.clicked.connect(self.cancel_propagation)
         self.cancel_prop_btn.setToolTip(
@@ -180,22 +236,29 @@ class PromptWidget(SAM2Subwidget):
         pbar_layout.addWidget(self.propagate_pbar)
 
         # Add the buttons to the layout
-        self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 3)
-        self.layout.addWidget(self.manual_segment_btn, 0, 3, 1, 3)
-        self.layout.addWidget(self.create_prompt_layers_btn, 1, 1, 1, 4)
+        self.layout.addWidget(self.auto_segment_tickbox,        0, 0, 1, 3)
+        self.layout.addWidget(self.manual_segment_btn,          0, 3, 1, 3)
+        self.layout.addWidget(self.create_prompt_layers_btn,    1, 1, 1, 4)
         self.layout.addWidget(self.reset_prompt_layers_slice_btn, 2, 0, 1, 3)
-        self.layout.addWidget(self.reset_prompt_layers_btn, 2, 3, 1, 3)
-        self.layout.addWidget(self.store_prompt_layers_btn, 3, 0, 1, 3)
-        self.layout.addWidget(self.load_prompt_layers_btn, 3, 3, 1, 3)
-        self.layout.addWidget(self.video_propagate_btn, 4, 0, 1, 2)
-        self.layout.addWidget(self.propagate_direction_box, 4, 2, 1, 2)
-        self.layout.addWidget(self.cancel_prop_btn, 4, 4, 1, 2)
-        self.layout.addWidget(self.start_frame_label, 5, 0, 1, 1)
-        self.layout.addWidget(self.start_frame_spinbox, 5, 1, 1, 1)
-        self.layout.addWidget(self.start_frame_current_btn, 5, 2, 1, 1)
-        self.layout.addWidget(self.max_frame_label, 5, 3, 1, 1)
-        self.layout.addWidget(self.max_frame_spinbox, 5, 4, 1, 1)
-        self.layout.addLayout(pbar_layout, 6, 0, 1, 6)
+        self.layout.addWidget(self.reset_prompt_layers_btn,     2, 3, 1, 3)
+        self.layout.addWidget(self.store_prompt_layers_btn,     3, 0, 1, 3)
+        self.layout.addWidget(self.load_prompt_layers_btn,      3, 3, 1, 3)
+        self.layout.addWidget(self.video_propagate_btn,         4, 0, 1, 2)
+        self.layout.addWidget(self.propagate_direction_box,     4, 2, 1, 2)
+        self.layout.addWidget(self.cancel_prop_btn,             4, 4, 1, 2)
+        
+        self.layout.addWidget(self.start_frame_label,           5, 0, 2, 1)
+        # self.layout.addWidget(self.start_frame_spinbox, 5, 1, 1, 1)
+        # self.layout.addWidget(self.start_frame_current_btn, 6, 1, 1, 1)
+        self.layout.addLayout(range_ctl_layout_1,               5, 1, 2, 2)
+        # self.layout.addWidget(self.max_frame_label, 5, 3, 1, 1)
+        # self.layout.addWidget(self.max_frame_mode_btn, 5, 3, 1, 1)
+        # self.layout.addWidget(self.end_frame_mode_btn, 6, 3, 1, 1)
+        # self.layout.addWidget(self.max_frame_spinbox, 5, 4, 1, 1)
+        # self.layout.addWidget(self.prop_range_slider, 6, 4, 1, 1)
+        self.layout.addLayout(range_ctl_layout_2,               5, 3, 2, 1)
+        self.layout.addLayout(range_ctl_layout_3,               5, 4, 2, 2)
+        self.layout.addLayout(pbar_layout,                      7, 0, 1, 6)
 
     def create_prompt_layers(self):
         # NOTE: We want to add labels first so that points is "above", and are better seen
@@ -788,7 +851,13 @@ class PromptWidget(SAM2Subwidget):
             # set to currently displayed slice
             idx = self.viewer.dims.current_step[0]
         self.start_frame_spinbox.setValue(idx)
-
+        
+    def set_end_frame(self, idx=None):
+        if idx is None:
+            # set to currently displayed slice
+            idx = self.viewer.dims.current_step[0]
+        self.max_frame_spinbox.setValue(idx)
+    
     def video_propagate(self):
         # Reset flag to cancel the propagation
         # NOTE: We do it here to ensure after final yield we still reset the progress bar
@@ -808,13 +877,20 @@ class PromptWidget(SAM2Subwidget):
         # Now propagate the prompts across the video from this frame
         # In the direction specified by the checkbox
         # TODO: Expose max_frame_num_to_track to potentially limit the number of frames to propagate
-        # 0 is a special value which means "auto" -> set to None
-        max_frame_num_to_track = self.max_frame_spinbox.value() or None
-        
+        reverse = self.propagate_direction_box.isChecked()
+        if self.prop_frames_radio_btns.checkedButton() == self.max_frame_mode_btn:
+            # 0 is a special value which means "auto" -> set to None        
+            max_frame_num_to_track = self.max_frame_spinbox.value() or None
+        elif self.prop_frames_radio_btns.checkedButton() == self.end_frame_mode_btn:
+            if end_frame := self.max_frame_spinbox.value():
+                reverse = end_frame < first_frame
+                max_frame_num_to_track = abs(end_frame - first_frame)
+            else:
+                max_frame_num_to_track = None
+            
         sam2_model = self.parent.subwidgets["model"].sam2_model
         inference_state = self.parent.subwidgets["model"].inference_state
         # Initialise progress bars with the number of frames to propagate
-        reverse = self.propagate_direction_box.isChecked()
         num_frames = min(
             first_frame if reverse else inference_state["num_frames"] - first_frame, 
             max_frame_num_to_track or np.inf
