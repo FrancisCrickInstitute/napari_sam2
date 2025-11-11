@@ -84,12 +84,10 @@ class DataWidget(SAM2Subwidget):
             self.current_layer.name,
             self.parent.subwidgets["model"].memory_mode,
         )
-        # Set max value for number of frames to propagate (total num frames - 1 because the starting frame isn't included)
-        self.parent.subwidgets[
-                "prompt"
-            ].max_frame_spinbox.setMaximum(
-                self.parent.subwidgets["model"].inference_state["num_frames"]-1
-            )
+        # Set max value for number of frames to propagate
+        self.parent.subwidgets["prompt"].prop_range.set_num_frames(
+            self.parent.subwidgets["model"].inference_state["num_frames"]
+        )
         
         self.parent.subwidgets[
                 "prompt"

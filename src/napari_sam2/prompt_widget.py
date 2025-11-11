@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 from typing import TYPE_CHECKING
 import warnings
+from types import SimpleNamespace
 
 from app_model.types import KeyCode
 from napari.layers.base import no_op
@@ -24,13 +25,13 @@ from qtpy.QtWidgets import (
     QProgressBar,
     QLabel,
     QSpinBox,
-    QSlider,
     QButtonGroup,
     QRadioButton
 )
 from qtpy.QtCore import Qt
 import skimage.io
 import torch
+from torch._inductor.ir import NoneLayout
 from tqdm import tqdm
 
 from napari_sam2.subwidget import SAM2Subwidget
@@ -145,29 +146,27 @@ class PromptWidget(SAM2Subwidget):
         self.start_frame_spinbox.setSpecialValueText("(auto)")
         self.start_frame_spinbox.setToolTip(
             format_tooltip(
-                "Starting frame for propagation"
+                "Starting frame for propagation (-1 for automatic)"
             )
         )
+        # button to set currently focussed frame as start frame
         self.start_frame_current_btn = QPushButton("Set To Current")
-        self.start_frame_current_btn.clicked.connect(lambda: self.set_start_frame())
         self.start_frame_current_btn.setToolTip(
             format_tooltip("Set propagation start frame to currently displayed position")
         )
-        # Max number of frames OR end frames
+        # Max number of frames OR end frames: control mode with autoexclusive buttons
         self.end_frame_mode_btn = QRadioButton()
         self.end_frame_mode_btn.setText("End frame")
         self.end_frame_mode_btn.setChecked(True) # Default mode is to set end frame index
         self.max_frame_mode_btn = QRadioButton()
         self.max_frame_mode_btn.setText("Max frames")
-        self.max_frame_mode_btn.setEnabled(False)
-        self.max_frame_mode_btn.setToolTip("This setting is under development")
-        
-        self.prop_frames_radio_btns = QButtonGroup()       
+        self.prop_frames_radio_btns = QButtonGroup()
         self.prop_frames_radio_btns.addButton(self.end_frame_mode_btn)
         self.prop_frames_radio_btns.addButton(self.max_frame_mode_btn)
-        
-        # self.max_frame_label = QLabel("Max\nFrames")
+        # Spin box for settin the max num/end frame value
         self.max_frame_spinbox = QSpinBox()
+        self.max_frame_spinbox.setMinimum(-1)
+        self.max_frame_spinbox.setValue(-1)
         self.max_frame_spinbox.setSpecialValueText("(auto)")
         self.max_frame_spinbox.setToolTip(
             format_tooltip(
@@ -175,27 +174,27 @@ class PromptWidget(SAM2Subwidget):
                 "Maximum number of frames to propagate for or propagation end frame"
             )
         )
-        # self.max_frame_spinbox.valueChanged.connect(self.set_max_or_end)
-        
         self.end_frame_current_btn = QPushButton("Set To Current")
-        self.end_frame_current_btn.clicked.connect(lambda: self.set_end_frame())
-
         # Disable "set to current" button if using number of frames 
         self.max_frame_mode_btn.toggled.connect(lambda: 
             self.end_frame_current_btn.setEnabled(not self.end_frame_current_btn.isEnabled())
         )
         
+        ## Set up object for managing propagation bounds and callbacks
+        self.prop_range = self.PropagationBoundsManager(self)
+        # Connect relevant widgets
+        self.prop_frames_radio_btns.idToggled.connect(self.prop_range._toggle_mode)
+        self.start_frame_spinbox.valueChanged.connect(self.prop_range.set_start_frame)
+        self.max_frame_spinbox.valueChanged.connect(self.prop_range.set_max_or_end)
+        self.end_frame_current_btn.clicked.connect(lambda: self.prop_range.set_max_or_end())
+        self.start_frame_current_btn.clicked.connect(lambda: self.prop_range.set_start_frame())
+
+        ## Layout
+        
         range_ctl_layout_1 = QVBoxLayout()
         range_ctl_layout_1.setSpacing(1)
         range_ctl_layout_1.addWidget(self.start_frame_spinbox)
         range_ctl_layout_1.addWidget(self.start_frame_current_btn)
-        
-        # Range slider linked to display
-        # self.prop_range_slider = QSlider(Qt.Orientation.Horizontal)
-        # self.prop_range_slider.setRange(0,20)
-        # self.prop_range_slider.setTickInterval(1)
-        # self.prop_range_slider.setTracking(True)
-        # self.prop_range_slider.valueChanged.connect(self._track_end_frame)
         
         range_ctl_layout_2 = QVBoxLayout()
         range_ctl_layout_2.setSpacing(1)
@@ -255,7 +254,6 @@ class PromptWidget(SAM2Subwidget):
         # self.layout.addWidget(self.max_frame_mode_btn, 5, 3, 1, 1)
         # self.layout.addWidget(self.end_frame_mode_btn, 6, 3, 1, 1)
         # self.layout.addWidget(self.max_frame_spinbox, 5, 4, 1, 1)
-        # self.layout.addWidget(self.prop_range_slider, 6, 4, 1, 1)
         self.layout.addLayout(range_ctl_layout_2,               5, 3, 2, 1)
         self.layout.addLayout(range_ctl_layout_3,               5, 4, 2, 2)
         self.layout.addLayout(pbar_layout,                      7, 0, 1, 6)
@@ -846,17 +844,134 @@ class PromptWidget(SAM2Subwidget):
         else:
             label_layer.selected_label = new_max_label
 
-    def set_start_frame(self, idx=None):
-        if idx is None:
-            # set to currently displayed slice
-            idx = self.viewer.dims.current_step[0]
-        self.start_frame_spinbox.setValue(idx)
+    # def set_start_frame(self, idx=None):
+    #     if idx is None:
+    #         # set to currently displayed slice
+    #         idx = self.viewer.dims.current_step[0]
+    #     self.start_frame_spinbox.setValue(idx)
+
+    class PropagationBoundsManager:
         
-    def set_end_frame(self, idx=None):
-        if idx is None:
-            # set to currently displayed slice
-            idx = self.viewer.dims.current_step[0]
-        self.max_frame_spinbox.setValue(idx)
+        def __init__(self, outer_instance):
+            
+            self.widget = outer_instance
+
+            self._start_frame = None
+            self._end_frame  = SimpleNamespace(
+                user_set=False, 
+                val=None, 
+                memory=None, 
+                active=self.widget.end_frame_mode_btn.isChecked
+            )
+            self._max_frames = SimpleNamespace(
+                user_set=False, 
+                val=None, 
+                memory=None,
+                active=self.widget.max_frame_mode_btn.isChecked
+            )
+            self._NUM_FRAMES = None
+        
+        def set_num_frames(self, n):
+            self._NUM_FRAMES = n
+            self.widget.max_frame_spinbox.setMaximum(
+                self._NUM_FRAMES - (self._max_frames.active())
+            )
+            
+        def set_start_frame(self, idx=None):
+            if idx == None:
+                # set to currently displayed slice
+                idx = self.widget.viewer.dims.current_step[0]
+                # update spin box value, since this will not have been triggered by valueChanged signal
+                self.widget.start_frame_spinbox.setValue(idx)
+            elif idx == -1: # special value to unset and use default
+                self._start_frame = None
+            else:
+                self._start_frame = idx # 
+  
+        def set_max_or_end(self, x=None):
+            # Check state
+            if self._end_frame.active() == self._max_frames.active():
+                raise RuntimeError("Exactly one radio button must be selected in group")
+            
+            if self._end_frame.active():
+                self._set_end_frame(x)
+            else:
+                self._set_max_frames(x)
+        
+        def _set_max_frames(self, n=None):
+            # TODO: these two functions are near identical so encapsulate them
+            if n is None: # this shouldn't occur
+                raise NotImplementedError("Max frames can only be set explicitly")
+            # Set user value and state
+            # If user sets down to -1, replace with special value
+            self._max_frames.val = None if n == -1 else n 
+            self._max_frames.user_set = bool(self._max_frames.val)
+            
+        def _set_end_frame(self, idx=None):
+            # If unknown index, set to current slice
+            if idx is None:
+                # set to currently displayed slice
+                idx = self.widget.viewer.dims.current_step[0]
+                self.widget.max_frame_spinbox.setValue(idx)
+            self._end_frame.val = None if idx == -1 else idx
+            self._end_frame.user_set = bool(self._end_frame.val)
+        
+        def _toggle_mode(self, buttonId, buttonChecked):
+            # Determine state and adjust the maximum value for the spinbox
+            if not buttonChecked:
+                # Ignore redundant toggle signal
+                return
+            if buttonId == self.widget.prop_frames_radio_btns.id(self.widget.end_frame_mode_btn):
+                assert self._end_frame.active() #hopefully redundant check
+                # switching to end frame mode
+                old_mode, new_mode = self._max_frames, self._end_frame
+                self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES)
+            else:
+                # switching to max_frame mode.
+                old_mode, new_mode = self._end_frame, self._max_frames
+                self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES-1)  
+            # commit user set value to memory
+            if old_mode.user_set:
+                old_mode.memory = old_mode.val
+                old_mode.val = None
+                old_mode.user_set = False
+            # if available, populate with memory value (last set user value)
+            if new_mode.memory != None:
+                self.widget.max_frame_spinbox.setValue(new_mode.memory)
+                new_mode.user_set = True
+            # otherwise set to auto mode (0)
+            else:
+                self.widget.max_frame_spinbox.setValue(self.widget.max_frame_spinbox.minimum())
+                new_mode.user_set = False
+            
+        def start_frame(self):
+            # Do not set _start_frame here! confusion!
+            # Calculate default start frame if not set by user interaction
+            if self._start_frame == None:
+                if self.widget.start_frame_spinbox.value() == self.widget.start_frame_spinbox.minimum():
+                    # calculate from objects
+                    start_frame = min(
+                        [
+                            min(self.widget.prompts[obj_id].keys())
+                            for obj_id in self.widget.prompts.keys()
+                        ]
+                    )
+                else:
+                    raise RuntimeError("Start frame spin box has unused value")
+            # Validate
+            else:
+                start_frame = self._start_frame
+            assert 0 <= start_frame <= self.widget.start_frame_spinbox.maximum()
+            return start_frame
+                         
+        def max_frames(self):
+            if not (self._end_frame.user_set or self._max_frames.user_set):
+                return None
+            elif self._end_frame.active(): 
+                # Return calculated max_frames
+                return self._end_frame.val - self.start_frame()
+            elif self._max_frames.active():
+                return self._max_frames.val
     
     def video_propagate(self):
         # Reset flag to cancel the propagation
@@ -867,35 +982,24 @@ class PromptWidget(SAM2Subwidget):
         # This should just be a trigger of SAM2 propagation
         video_segments = {}
         # Get the first frame that we have prompts for
-        user_start_frame = self.start_frame_spinbox.value()
-        first_frame = user_start_frame if user_start_frame != -1 else min(
-            [
-                min(self.prompts[obj_id].keys())
-                for obj_id in self.prompts.keys()
-            ]
-        )
+        first_frame = self.prop_range.start_frame()
         # Now propagate the prompts across the video from this frame
         # In the direction specified by the checkbox
         # TODO: Expose max_frame_num_to_track to potentially limit the number of frames to propagate
         reverse = self.propagate_direction_box.isChecked()
-        if self.prop_frames_radio_btns.checkedButton() == self.max_frame_mode_btn:
-            # 0 is a special value which means "auto" -> set to None        
-            max_frame_num_to_track = self.max_frame_spinbox.value() or None
-        elif self.prop_frames_radio_btns.checkedButton() == self.end_frame_mode_btn:
-            if end_frame := self.max_frame_spinbox.value():
-                reverse = end_frame < first_frame
-                max_frame_num_to_track = abs(end_frame - first_frame)
-            else:
-                max_frame_num_to_track = None
+        user_max_frames = self.prop_range.max_frames()
+        if user_max_frames != None:
+            reverse |= user_max_frames < 0
+            max_frame_num_to_track = abs(user_max_frames)
+            num_frames = min(max_frame_num_to_track, first_frame if reverse else self.prop_range._NUM_FRAMES - first_frame)
+        else: 
+            max_frame_num_to_track = user_max_frames
+            num_frames = first_frame if reverse else self.prop_range._NUM_FRAMES - first_frame
             
         sam2_model = self.parent.subwidgets["model"].sam2_model
         inference_state = self.parent.subwidgets["model"].inference_state
+
         # Initialise progress bars with the number of frames to propagate
-        num_frames = min(
-            first_frame if reverse else inference_state["num_frames"] - first_frame, 
-            max_frame_num_to_track or np.inf
-        )
-            
         self.init_pbar(num_frames=num_frames)
 
         @thread_worker(
