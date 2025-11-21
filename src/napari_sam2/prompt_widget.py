@@ -31,7 +31,6 @@ from qtpy.QtWidgets import (
 from qtpy.QtCore import Qt
 import skimage.io
 import torch
-from torch._inductor.ir import NoneLayout
 from tqdm import tqdm
 
 from napari_sam2.subwidget import SAM2Subwidget
@@ -136,6 +135,7 @@ class PromptWidget(SAM2Subwidget):
                 "Propagate the given prompts across the entire video. This may take some time."
             )
         )
+        
         ##  Limiting propagation range
         # Starting frame
         self.start_frame_label = QLabel("Start\nFrame")
@@ -189,13 +189,11 @@ class PromptWidget(SAM2Subwidget):
         self.end_frame_current_btn.clicked.connect(lambda: self.prop_range.set_max_or_end())
         self.start_frame_current_btn.clicked.connect(lambda: self.prop_range.set_start_frame())
 
-        ## Layout
-        
+        ## Compact sublayouts for propagation range control elements
         range_ctl_layout_1 = QVBoxLayout()
         range_ctl_layout_1.setSpacing(1)
         range_ctl_layout_1.addWidget(self.start_frame_spinbox)
         range_ctl_layout_1.addWidget(self.start_frame_current_btn)
-        
         range_ctl_layout_2 = QVBoxLayout()
         range_ctl_layout_2.setSpacing(1)
         range_ctl_layout_2.addWidget(self.end_frame_mode_btn)
@@ -245,15 +243,8 @@ class PromptWidget(SAM2Subwidget):
         self.layout.addWidget(self.video_propagate_btn,         4, 0, 1, 2)
         self.layout.addWidget(self.propagate_direction_box,     4, 2, 1, 2)
         self.layout.addWidget(self.cancel_prop_btn,             4, 4, 1, 2)
-        
         self.layout.addWidget(self.start_frame_label,           5, 0, 2, 1)
-        # self.layout.addWidget(self.start_frame_spinbox, 5, 1, 1, 1)
-        # self.layout.addWidget(self.start_frame_current_btn, 6, 1, 1, 1)
         self.layout.addLayout(range_ctl_layout_1,               5, 1, 2, 2)
-        # self.layout.addWidget(self.max_frame_label, 5, 3, 1, 1)
-        # self.layout.addWidget(self.max_frame_mode_btn, 5, 3, 1, 1)
-        # self.layout.addWidget(self.end_frame_mode_btn, 6, 3, 1, 1)
-        # self.layout.addWidget(self.max_frame_spinbox, 5, 4, 1, 1)
         self.layout.addLayout(range_ctl_layout_2,               5, 3, 2, 1)
         self.layout.addLayout(range_ctl_layout_3,               5, 4, 2, 2)
         self.layout.addLayout(pbar_layout,                      7, 0, 1, 6)
