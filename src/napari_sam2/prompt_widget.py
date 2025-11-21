@@ -844,29 +844,23 @@ class PromptWidget(SAM2Subwidget):
         else:
             label_layer.selected_label = new_max_label
 
-    # def set_start_frame(self, idx=None):
-    #     if idx is None:
-    #         # set to currently displayed slice
-    #         idx = self.viewer.dims.current_step[0]
-    #     self.start_frame_spinbox.setValue(idx)
-
     class PropagationBoundsManager:
         
         def __init__(self, outer_instance):
             
             self.widget = outer_instance
+            
+            self.UNSET = self.widget.max_frame_spinbox.minimum()
 
-            self._start_frame = None
+            self._start_frame = self.UNSET
             self._end_frame  = SimpleNamespace(
-                user_set=False, 
-                val=None, 
-                memory=None, 
+                val=self.UNSET, 
+                memory=self.UNSET, 
                 active=self.widget.end_frame_mode_btn.isChecked
             )
             self._max_frames = SimpleNamespace(
-                user_set=False, 
-                val=None, 
-                memory=None,
+                val=self.UNSET, 
+                memory=self.UNSET,
                 active=self.widget.max_frame_mode_btn.isChecked
             )
             self._NUM_FRAMES = None
@@ -883,16 +877,13 @@ class PromptWidget(SAM2Subwidget):
                 idx = self.widget.viewer.dims.current_step[0]
                 # update spin box value, since this will not have been triggered by valueChanged signal
                 self.widget.start_frame_spinbox.setValue(idx)
-            elif idx == -1: # special value to unset and use default
-                self._start_frame = None
             else:
-                self._start_frame = idx # 
+                self._start_frame = idx # could be -1 special value
   
         def set_max_or_end(self, x=None):
             # Check state
             if self._end_frame.active() == self._max_frames.active():
                 raise RuntimeError("Exactly one radio button must be selected in group")
-            
             if self._end_frame.active():
                 self._set_end_frame(x)
             else:
@@ -903,9 +894,7 @@ class PromptWidget(SAM2Subwidget):
             if n is None: # this shouldn't occur
                 raise NotImplementedError("Max frames can only be set explicitly")
             # Set user value and state
-            # If user sets down to -1, replace with special value
-            self._max_frames.val = None if n == -1 else n 
-            self._max_frames.user_set = bool(self._max_frames.val)
+            self._max_frames.val = n 
             
         def _set_end_frame(self, idx=None):
             # If unknown index, set to current slice
@@ -913,41 +902,28 @@ class PromptWidget(SAM2Subwidget):
                 # set to currently displayed slice
                 idx = self.widget.viewer.dims.current_step[0]
                 self.widget.max_frame_spinbox.setValue(idx)
-            self._end_frame.val = None if idx == -1 else idx
-            self._end_frame.user_set = bool(self._end_frame.val)
+            self._end_frame.val = idx
+            # If end frame de-set, (re-)enable the reverse propagation checkbox
+            self.widget.propagate_direction_box.setEnabled(self._end_frame.val == self.UNSET)
         
         def _toggle_mode(self, buttonId, buttonChecked):
-            # Determine state and adjust the maximum value for the spinbox
-            if not buttonChecked:
-                # Ignore redundant toggle signal
-                return
-            if buttonId == self.widget.prop_frames_radio_btns.id(self.widget.end_frame_mode_btn):
-                assert self._end_frame.active() #hopefully redundant check
-                # switching to end frame mode
-                old_mode, new_mode = self._max_frames, self._end_frame
-                self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES)
-            else:
-                # switching to max_frame mode.
-                old_mode, new_mode = self._end_frame, self._max_frames
-                self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES-1)  
-            # commit user set value to memory
-            if old_mode.user_set:
-                old_mode.memory = old_mode.val
-                old_mode.val = None
-                old_mode.user_set = False
-            # if available, populate with memory value (last set user value)
-            if new_mode.memory != None:
-                self.widget.max_frame_spinbox.setValue(new_mode.memory)
-                new_mode.user_set = True
-            # otherwise set to auto mode (0)
-            else:
-                self.widget.max_frame_spinbox.setValue(self.widget.max_frame_spinbox.minimum())
-                new_mode.user_set = False
+            # Determine state, store/update user values and adjust the maximum value for the spinbox
+            if not buttonChecked: return # Ignore redundant toggle signal
+            switch_to_max_mode = self._max_frames.active()
+            new_mode, old_mode  = (self._end_frame, self._max_frames)[::(-1)**switch_to_max_mode]
+            self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES - switch_to_max_mode)
+            old_mode.memory = old_mode.val
+            old_mode.val = self.UNSET
+            # populate with memory value (last set user value, or UNSET)
+            new_mode.val = new_mode.memory
+            self.widget.max_frame_spinbox.setValue(new_mode.memory)
+            # Finally, dis/re-enable reverse prop box if appropriate
+            self.widget.propagate_direction_box.setEnabled(self._end_frame.val == self.UNSET)
             
         def start_frame(self):
             # Do not set _start_frame here! confusion!
             # Calculate default start frame if not set by user interaction
-            if self._start_frame == None:
+            if self._start_frame == self.UNSET:
                 if self.widget.start_frame_spinbox.value() == self.widget.start_frame_spinbox.minimum():
                     # calculate from objects
                     start_frame = min(
@@ -965,7 +941,7 @@ class PromptWidget(SAM2Subwidget):
             return start_frame
                          
         def max_frames(self):
-            if not (self._end_frame.user_set or self._max_frames.user_set):
+            if (self._end_frame.val == self.UNSET) and (self._max_frames.val == self.UNSET):
                 return None
             elif self._end_frame.active(): 
                 # Return calculated max_frames
@@ -984,9 +960,8 @@ class PromptWidget(SAM2Subwidget):
         # Get the first frame that we have prompts for
         first_frame = self.prop_range.start_frame()
         # Now propagate the prompts across the video from this frame
-        # In the direction specified by the checkbox
-        # TODO: Expose max_frame_num_to_track to potentially limit the number of frames to propagate
-        reverse = self.propagate_direction_box.isChecked()
+        # In the direction specified by the checkbox or start/end frames
+        reverse = self.propagate_direction_box.isChecked() and self.propagate_direction_box.isEnabled()
         user_max_frames = self.prop_range.max_frames()
         if user_max_frames != None:
             reverse |= user_max_frames < 0
