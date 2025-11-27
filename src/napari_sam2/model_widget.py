@@ -366,8 +366,22 @@ If you have a GPU but it is not being used, please check your PyTorch installati
             axes_order = axes_order.upper()
 
             # Find indices for T and C in the axes order
-            t_idx = axes_order.find('T') if 'T' in axes_order else 0
-            c_idx = axes_order.find('C') if 'C' in axes_order else 1
+            # Validate that both T and C are present
+            if 'T' not in axes_order or 'C' not in axes_order:
+                show_error(
+                    f"5D data requires both Time (T) and Channel (C) dimensions. Found axes: {axes_order}"
+                )
+                return False
+
+            t_idx = axes_order.find('T')
+            c_idx = axes_order.find('C')
+
+            # Validate indices are within bounds
+            if t_idx >= squeezed_ndim or c_idx >= squeezed_ndim:
+                show_error(
+                    f"Invalid axes order '{axes_order}' for {squeezed_ndim}D data."
+                )
+                return False
 
             expected_num_frames = squeezed_data.shape[t_idx]
             expected_num_channels = squeezed_data.shape[c_idx]
@@ -449,27 +463,29 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                         else:
                             # Handle cases where T is not the first dimension
                             # Build slice tuple to extract the i-th time frame
-                            slices = [slice(None)] * 5
+                            slices = [slice(None)] * squeezed_ndim
                             slices[t_idx] = i
                             frame_data = squeezed_data[tuple(slices)]
 
-                        # Now squeeze out the time dimension and handle channels
-                        frame_data = np.squeeze(frame_data)  # Remove time dim
-
-                        # At this point, we should have (C, Z, Y, X) or similar
+                        # At this point, frame_data should be 4D (C, Z, Y, X) or similar
                         # We need to extract (Y, X) or (Y, X, C) for PIL
-                        # Find channel dimension after squeezing out time
                         if expected_num_channels == 1:
-                            # Take first channel and max project if needed
-                            if frame_data.ndim == 4:  # (1, Z, Y, X)
-                                frame_data = frame_data[0]  # Remove channel: (Z, Y, X)
+                            # Take first channel (along c_idx dimension after removing time)
+                            # Adjust c_idx if time dimension was before it
+                            adjusted_c_idx = c_idx if t_idx > c_idx else c_idx - 1
+                            # Select the channel
+                            frame_data = np.take(frame_data, 0, axis=adjusted_c_idx)
+                            # Now max project along Z (should be first remaining axis)
                             if frame_data.ndim == 3:  # (Z, Y, X)
-                                # Max project along Z
                                 frame_data = np.max(frame_data, axis=0)  # (Y, X)
                         else:
                             # RGB: extract and arrange properly
+                            # frame_data is (C, Z, Y, X) or similar
+                            # Max project along Z (find Z axis - should be axis 1 if C is at 0)
+                            adjusted_c_idx = c_idx if t_idx > c_idx else c_idx - 1
+                            # Assuming remaining structure has Z after C
                             if frame_data.ndim == 4:  # (C, Z, Y, X)
-                                # Max project along Z, then transpose
+                                # Max project along Z (axis 1)
                                 frame_data = np.max(frame_data, axis=1)  # (C, Y, X)
                                 frame_data = np.transpose(frame_data, (1, 2, 0))  # (Y, X, C)
 
