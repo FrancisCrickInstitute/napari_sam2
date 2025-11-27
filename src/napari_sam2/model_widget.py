@@ -350,10 +350,11 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                 return False
         elif squeezed_ndim == 5:
             # 5D data - check for metadata axes order or assume TCZYX
-            # Initialize axis indices for 5D processing
-            t_idx = 0  # Time index
-            c_idx = 1  # Channel index
-            z_idx = 2  # Z (depth) index - default for TCZYX
+            # Initialize default TCZYX axis indices for 5D processing
+            # These will be overridden if metadata provides different ordering
+            t_idx = 0  # Time index (default: first dimension)
+            c_idx = 1  # Channel index (default: second dimension)
+            z_idx = 2  # Z (depth) index (default: third dimension in TCZYX)
             
             axes_order = None
             try:
@@ -380,7 +381,7 @@ If you have a GPU but it is not being used, please check your PyTorch installati
 
             t_idx = axes_order.find('T')
             c_idx = axes_order.find('C')
-            z_idx = axes_order.find('Z') if 'Z' in axes_order else -1
+            z_idx = axes_order.find('Z')  # Returns -1 if Z not found
 
             # Validate indices are within bounds
             if t_idx >= squeezed_ndim or c_idx >= squeezed_ndim:
@@ -489,13 +490,13 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                             # Now max project along Z if present
                             if adjusted_z_idx >= 0 and frame_data.ndim > 2:
                                 # Adjust Z index after channel removal:
-                                # If channel was removed from a position before Z, decrement Z index
-                                final_z_idx = adjusted_z_idx if adjusted_c_idx > adjusted_z_idx else adjusted_z_idx - 1
+                                # Decrement Z index by 1 if channel was at a lower position
+                                final_z_idx = adjusted_z_idx - (1 if adjusted_c_idx < adjusted_z_idx else 0)
                                 if final_z_idx < frame_data.ndim:
                                     frame_data = np.max(frame_data, axis=final_z_idx)
-                            elif frame_data.ndim == 3:  # Fallback: assume Z is first axis
-                                # This fallback is used when Z axis is not in metadata
-                                # Assuming standard ordering after channel removal
+                            elif frame_data.ndim == 3:  # Fallback: Z is first axis (axis 0)
+                                # After removing T and C, remaining axes are ZYX
+                                # Max project along axis 0 (Z dimension)
                                 frame_data = np.max(frame_data, axis=0)
                         else:
                             # RGB: extract and arrange properly
@@ -505,9 +506,9 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                                 # After Z removal, adjust for transpose
                                 # Result should be (C, Y, X) - transpose to (Y, X, C)
                                 frame_data = np.transpose(frame_data, (1, 2, 0))
-                            elif frame_data.ndim == 4:  # Fallback: assume Z is at axis 1 (C, Z, Y, X)
-                                # This fallback is used when Z axis is not in metadata
-                                # Assuming TCZYX ordering (Z at position 1 after removing T)
+                            elif frame_data.ndim == 4:  # Fallback: assume CZYX ordering (axis 1 is Z)
+                                # After removing T, data is CZYX (Z at axis 1 for RGB)
+                                # This handles the case when Z is not in metadata
                                 frame_data = np.max(frame_data, axis=1)  # (C, Y, X)
                                 frame_data = np.transpose(frame_data, (1, 2, 0))  # (Y, X, C)
 
