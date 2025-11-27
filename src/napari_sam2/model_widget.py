@@ -1,33 +1,33 @@
+import shutil
 from importlib.resources import files
 from pathlib import Path
-import shutil
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 import hydra
+import numpy as np
+import requests
+import torch
 from hydra import initialize_config_dir
 from napari.qt.threading import thread_worker
 from napari.utils import progress
 from napari.utils.notifications import show_error, show_info
-import numpy as np
 from PIL import Image
 from platformdirs import user_cache_dir
+from qtpy import QtCore
 from qtpy.QtWidgets import (
-    QWidget,
-    QPushButton,
+    QCheckBox,
     QComboBox,
+    QFileDialog,
     QLabel,
     QLayout,
-    QFileDialog,
-    QCheckBox,
+    QPushButton,
+    QWidget,
 )
-from qtpy import QtCore
-import requests
 from sam2.build_sam import build_sam2_video_predictor
 from skimage.util import img_as_ubyte
-import torch
 
 from napari_sam2.subwidget import SAM2Subwidget
-from napari_sam2.utils import format_tooltip, get_device, configure_cuda
+from napari_sam2.utils import configure_cuda, format_tooltip, get_device
 
 if TYPE_CHECKING:
     import napari
@@ -323,25 +323,65 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         layer = self.parent.subwidgets["data"].current_layer
         # NOTE: We pull from layer directly rather than file to ensure any in-Napari changes are carried over, avoid re-reading file, and avoid having to track file paths
         # Check if frames already exist for this specific data
-        if layer.data.ndim == 2:
+
+        # First, squeeze the data to remove singleton dimensions
+        squeezed_data = np.squeeze(layer.data)
+        squeezed_ndim = squeezed_data.ndim
+
+        # Initialize variables for 5D case
+        t_idx = 0
+        c_idx = 1
+
+        # Now handle based on squeezed dimensions
+        if squeezed_ndim == 2:
             # 2D image
             expected_num_frames = 1
-        elif layer.data.ndim == 3:
+        elif squeezed_ndim == 3:
             if layer.rgb:
                 # RGB image
                 expected_num_frames = 1
             else:
                 # Grayscale image
-                expected_num_frames = layer.data.shape[0]
-        elif layer.data.ndim == 4:
+                expected_num_frames = squeezed_data.shape[0]
+        elif squeezed_ndim == 4:
             # Otherwise we hope that first channel is slices/frames
-            expected_num_frames = layer.data.shape[0]
-            expected_num_channels = layer.data.shape[1]
+            expected_num_frames = squeezed_data.shape[0]
+            expected_num_channels = squeezed_data.shape[1]
             if expected_num_channels not in [1, 3]:
                 show_error(
                     "Data has more than 3 channels. Please select a single channel or RGB data."
                 )
                 return False
+        elif squeezed_ndim == 5:
+            # 5D data - check for metadata axes order or assume TCZYX
+            axes_order = None
+            if hasattr(layer, 'metadata') and 'axes' in layer.metadata:
+                axes_order = layer.metadata['axes']
+
+            # If no metadata, assume TCZYX order (Time, Channel, Z, Y, X)
+            if axes_order is None:
+                axes_order = 'TCZYX'
+
+            # Convert axes_order to uppercase for consistency
+            axes_order = axes_order.upper()
+
+            # Find indices for T and C in the axes order
+            t_idx = axes_order.find('T') if 'T' in axes_order else 0
+            c_idx = axes_order.find('C') if 'C' in axes_order else 1
+
+            expected_num_frames = squeezed_data.shape[t_idx]
+            expected_num_channels = squeezed_data.shape[c_idx]
+
+            if expected_num_channels not in [1, 3]:
+                show_error(
+                    "Data has more than 3 channels. Please select a single channel or RGB data."
+                )
+                return False
+        else:
+            show_error(
+                f"Unsupported data dimensions: {squeezed_ndim}D (original: {layer.data.ndim}D). Please use 2D-5D data."
+            )
+            return False
         # Create frame folder for this specific image layer
         self.frame_folder = self.frame_temp_dir / layer.name.split(".")[0]
         self.frame_folder.mkdir(exist_ok=True)
@@ -361,28 +401,86 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                     i.unlink()
             # Loop over frames and save them
             if expected_num_frames == 1:
-                # 2D image
+                # 2D or single-frame image
                 # Save the image as a single frame
-                if layer.data.dtype != np.uint8:
+                if squeezed_data.dtype != np.uint8:
                     # Convert to uint8 for saving as JPEG
-                    slice_arr = Image.fromarray(img_as_ubyte(layer.data))
+                    slice_arr = Image.fromarray(img_as_ubyte(squeezed_data))
                 else:
-                    slice_arr = Image.fromarray(layer.data)
+                    slice_arr = Image.fromarray(squeezed_data)
                 # TODO: Check image mode and whether this can be written as JPEG
                 # 16-bit cannot be written as JPEG
                 slice_arr.save(f"{self.frame_folder}/{0:05d}.jpg")
             else:
                 # Otherwise loop over and save each frame/slice as SAM2 expects
-                for i, frame in enumerate(layer.data):
-                    if frame.dtype != np.uint8:
-                        # Convert to uint8 for saving as JPEG
-                        slice_arr = Image.fromarray(img_as_ubyte(frame))
-                    else:
-                        slice_arr = Image.fromarray(frame)
-                    slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
+                # For 4D and 5D data, we need to handle channels appropriately
+                if squeezed_ndim == 3:
+                    # 3D data: iterate over first dimension (time/z)
+                    for i, frame in enumerate(squeezed_data):
+                        if frame.dtype != np.uint8:
+                            # Convert to uint8 for saving as JPEG
+                            slice_arr = Image.fromarray(img_as_ubyte(frame))
+                        else:
+                            slice_arr = Image.fromarray(frame)
+                        slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
+                elif squeezed_ndim == 4:
+                    # 4D data: T, C, Y, X - iterate over time, handle channels
+                    for i in range(expected_num_frames):
+                        # Extract frame at time i, handling channels
+                        frame_data = squeezed_data[i]  # Shape: (C, Y, X)
+                        # If single channel, squeeze it out
+                        if expected_num_channels == 1:
+                            frame_data = frame_data[0]  # Shape: (Y, X)
+                        else:
+                            # RGB: transpose to (Y, X, C) for PIL
+                            frame_data = np.transpose(frame_data, (1, 2, 0))  # Shape: (Y, X, C)
+
+                        if frame_data.dtype != np.uint8:
+                            slice_arr = Image.fromarray(img_as_ubyte(frame_data))
+                        else:
+                            slice_arr = Image.fromarray(frame_data)
+                        slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
+                elif squeezed_ndim == 5:
+                    # 5D data: use axes_order to extract frames properly
+                    for i in range(expected_num_frames):
+                        # Extract frame at time index i
+                        if t_idx == 0:
+                            frame_data = squeezed_data[i]  # Get time slice
+                        else:
+                            # Handle cases where T is not the first dimension
+                            # Build slice tuple to extract the i-th time frame
+                            slices = [slice(None)] * 5
+                            slices[t_idx] = i
+                            frame_data = squeezed_data[tuple(slices)]
+
+                        # Now squeeze out the time dimension and handle channels
+                        frame_data = np.squeeze(frame_data)  # Remove time dim
+
+                        # At this point, we should have (C, Z, Y, X) or similar
+                        # We need to extract (Y, X) or (Y, X, C) for PIL
+                        # Find channel dimension after squeezing out time
+                        if expected_num_channels == 1:
+                            # Take first channel and max project if needed
+                            if frame_data.ndim == 4:  # (1, Z, Y, X)
+                                frame_data = frame_data[0]  # Remove channel: (Z, Y, X)
+                            if frame_data.ndim == 3:  # (Z, Y, X)
+                                # Max project along Z
+                                frame_data = np.max(frame_data, axis=0)  # (Y, X)
+                        else:
+                            # RGB: extract and arrange properly
+                            if frame_data.ndim == 4:  # (C, Z, Y, X)
+                                # Max project along Z, then transpose
+                                frame_data = np.max(frame_data, axis=1)  # (C, Y, X)
+                                frame_data = np.transpose(frame_data, (1, 2, 0))  # (Y, X, C)
+
+                        if frame_data.dtype != np.uint8:
+                            slice_arr = Image.fromarray(img_as_ubyte(frame_data))
+                        else:
+                            slice_arr = Image.fromarray(frame_data)
+                        slice_arr.save(f"{self.frame_folder}/{i:05d}.jpg")
         return True
 
-    def check_model_load_btn(self, model_type: Optional[str] = None):
+    def check_model_load_btn(self, model_type: str | None = None):
         if model_type is None:
             model_type = self.model_type
         # Check if model is loaded and set button text accordingly
