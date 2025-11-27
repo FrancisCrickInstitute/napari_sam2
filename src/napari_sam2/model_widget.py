@@ -328,9 +328,11 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         squeezed_data = np.squeeze(layer.data)
         squeezed_ndim = squeezed_data.ndim
 
-        # Initialize variables for 5D case
+        # Initialize variables for 5D case (will be set properly in 5D block)
+        # These are fallback defaults only
         t_idx = 0
         c_idx = 1
+        z_idx = 2  # Default Z position for TCZYX
 
         # Now handle based on squeezed dimensions
         if squeezed_ndim == 2:
@@ -375,6 +377,7 @@ If you have a GPU but it is not being used, please check your PyTorch installati
 
             t_idx = axes_order.find('T')
             c_idx = axes_order.find('C')
+            z_idx = axes_order.find('Z') if 'Z' in axes_order else -1
 
             # Validate indices are within bounds
             if t_idx >= squeezed_ndim or c_idx >= squeezed_ndim:
@@ -469,23 +472,34 @@ If you have a GPU but it is not being used, please check your PyTorch installati
 
                         # At this point, frame_data should be 4D (C, Z, Y, X) or similar
                         # We need to extract (Y, X) or (Y, X, C) for PIL
+                        # Adjust indices after removing time dimension
+                        adjusted_c_idx = c_idx if t_idx > c_idx else c_idx - 1
+                        adjusted_z_idx = z_idx if z_idx >= 0 else -1
+                        if adjusted_z_idx >= 0:
+                            # Adjust z_idx based on removed dimensions
+                            if t_idx < z_idx:
+                                adjusted_z_idx -= 1
+                        
                         if expected_num_channels == 1:
-                            # Take first channel (along c_idx dimension after removing time)
-                            # Adjust c_idx if time dimension was before it
-                            adjusted_c_idx = c_idx if t_idx > c_idx else c_idx - 1
-                            # Select the channel
+                            # Take first channel
                             frame_data = np.take(frame_data, 0, axis=adjusted_c_idx)
-                            # Now max project along Z (should be first remaining axis)
-                            if frame_data.ndim == 3:  # (Z, Y, X)
-                                frame_data = np.max(frame_data, axis=0)  # (Y, X)
+                            # Now max project along Z if present
+                            if adjusted_z_idx >= 0 and frame_data.ndim > 2:
+                                # Adjust z_idx again if we removed channel dimension
+                                final_z_idx = adjusted_z_idx if adjusted_c_idx > adjusted_z_idx else adjusted_z_idx - 1
+                                if final_z_idx < frame_data.ndim:
+                                    frame_data = np.max(frame_data, axis=final_z_idx)
+                            elif frame_data.ndim == 3:  # Fallback: assume Z is first
+                                frame_data = np.max(frame_data, axis=0)
                         else:
                             # RGB: extract and arrange properly
-                            # frame_data is (C, Z, Y, X) or similar
-                            # Max project along Z (find Z axis - should be axis 1 if C is at 0)
-                            adjusted_c_idx = c_idx if t_idx > c_idx else c_idx - 1
-                            # Assuming remaining structure has Z after C
-                            if frame_data.ndim == 4:  # (C, Z, Y, X)
-                                # Max project along Z (axis 1)
+                            # Max project along Z if present
+                            if adjusted_z_idx >= 0 and frame_data.ndim == 4:
+                                frame_data = np.max(frame_data, axis=adjusted_z_idx)  # Remove Z
+                                # After Z removal, adjust for transpose
+                                # Result should be (C, Y, X) - transpose to (Y, X, C)
+                                frame_data = np.transpose(frame_data, (1, 2, 0))
+                            elif frame_data.ndim == 4:  # Fallback: assume Z is at axis 1
                                 frame_data = np.max(frame_data, axis=1)  # (C, Y, X)
                                 frame_data = np.transpose(frame_data, (1, 2, 0))  # (Y, X, C)
 

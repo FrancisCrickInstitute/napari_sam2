@@ -2,9 +2,6 @@
 
 import numpy as np
 import pytest
-from pathlib import Path
-import tempfile
-import shutil
 
 
 def test_squeeze_handles_singleton_dimensions(make_napari_viewer):
