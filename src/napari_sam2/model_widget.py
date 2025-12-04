@@ -230,17 +230,17 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         self.model_type = self.model_combo.currentText()
 
         # Add widgets to layout
-        self.layout.addWidget(self.device_label, 0, 0, 1, 2)
+        self.layout.addWidget(self.device_label, 0, 0, 1, -1)
         self.layout.addWidget(self.family_label, 1, 0, 1, 1)
-        self.layout.addWidget(self.family_combo, 1, 1, 1, 1)
+        self.layout.addWidget(self.family_combo, 1, 1, 1, 2)
         self.layout.addWidget(self.model_label, 2, 0, 1, 1)
-        self.layout.addWidget(self.model_combo, 2, 1, 1, 1)
-        self.layout.addWidget(self.help_link, 2, 2, 1, 1)
-        self.layout.addWidget(self.download_loc_btn, 3, 0, 1, 1)
-        self.layout.addWidget(self.download_loc_text, 3, 1, 1, 1)
-        self.layout.addWidget(self.low_memory_cb, 4, 0, 1, 1)
-        self.layout.addWidget(self.super_low_memory_cb, 5, 0, 1, 1)
-        self.layout.addWidget(self.load_btn, 4, 1, 2, 1)
+        self.layout.addWidget(self.model_combo, 2, 1, 1, 2)
+        self.layout.addWidget(self.help_link, 1, 3, 2, -1)
+        self.layout.addWidget(self.download_loc_btn, 3, 0, 1, 2)
+        self.layout.addWidget(self.download_loc_text, 3, 2, 1, -1)
+        self.layout.addWidget(self.low_memory_cb, 4, 0, 1, 2)
+        self.layout.addWidget(self.super_low_memory_cb, 5, 0, 1, 2)
+        self.layout.addWidget(self.load_btn, 4, 2, 2, -1)
 
     def _check_model_exists(self):
         # Check if model exists
