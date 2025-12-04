@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Optional
 import hydra
 from hydra import initialize_config_dir
 from napari.qt.threading import thread_worker
+from napari._qt.qt_resources import QColoredSVGIcon
 from napari.utils import progress
 from napari.utils.notifications import show_error, show_info
 import numpy as np
@@ -21,6 +22,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
 )
 from qtpy import QtCore
+from qtpy.QtGui import QDesktopServices
 import requests
 from sam2.build_sam import build_sam2_video_predictor
 from skimage.util import img_as_ubyte
@@ -169,10 +171,18 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                 "Select which model to use. Note that changing the model will clear any pre-calculated embeddings."
             )
         )
-        self.help_link = QLabel(
-            f"<a href=\"{MODEL_DICT[self.model_family]['help_url']}\">More info<\a>"
+        self.help_link = QPushButton("")
+        self.help_link.setIcon(
+            QColoredSVGIcon.from_resources("help").colored(theme="dark")
         )
-        self.help_link.setOpenExternalLinks(True)
+        self.help_link.setFixedSize(30, 30)
+        self.help_link.setIconSize(self.help_link.size() * 0.65)
+        self.help_link.setToolTip(
+            "Open model family checkpoint information (external link)"
+        )
+        self.help_link.clicked.connect(lambda: QDesktopServices.openUrl(
+            QtCore.QUrl(MODEL_DICT[self.model_family]['help_url'])
+        ))
         
         # Connect family and model dropdown options
         self.family_combo.currentIndexChanged.connect(self.family_changed)
@@ -472,7 +482,6 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         self.model_family = self.family_combo.currentText()
         self.model_combo.clear()
         self.model_combo.addItems(MODEL_DICT[self.model_family]['models'].keys())
-        self.help_link.setText(f"<a href=\"{MODEL_DICT[self.model_family]['help_url']}\">More info<\a>")
 
     def add_point_prompt(self, object_id, prompt_dict, frame_idx):
         # Add new points to model
