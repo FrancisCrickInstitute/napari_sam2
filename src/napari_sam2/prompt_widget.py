@@ -921,11 +921,8 @@ class PromptWidget(SAM2Subwidget):
                 if self.widget.start_frame_spinbox.value() == self.widget.start_frame_spinbox.minimum():
                     # calculate from objects
                     start_frame = min(
-                        [
-                            min(self.widget.prompts[obj_id].keys())
-                            for obj_id in self.widget.prompts.keys()
-                        ]
-                    )
+                        min(obj_frames) for obj_frames in self.widget.prompts.values()
+                    ) if self.widget.prompts else 0
                 else:
                     raise RuntimeError("Start frame spin box has unused value")
             # Validate
