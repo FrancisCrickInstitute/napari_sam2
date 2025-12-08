@@ -34,7 +34,7 @@ import torch
 from tqdm import tqdm
 
 from napari_sam2.subwidget import SAM2Subwidget
-from napari_sam2.utils import format_tooltip
+from napari_sam2.utils import format_tooltip, get_active_dim_size
 
 
 if TYPE_CHECKING:
@@ -182,6 +182,10 @@ class PromptWidget(SAM2Subwidget):
         
         ## Set up object for managing propagation bounds and callbacks
         self.prop_range = self.PropagationBoundsManager(self)
+        if "data" in self.parent.subwidgets:
+            if (clayer := self.parent.subwidgets["data"].current_layer) is not None:
+                _, size_at_dim = get_active_dim_size(self.viewer, clayer)
+                self.prop_range.set_num_frames(size_at_dim)
         # Connect relevant widgets
         self.prop_frames_radio_btns.idToggled.connect(self.prop_range._toggle_mode)
         self.start_frame_spinbox.valueChanged.connect(self.prop_range.set_start_frame)
@@ -854,13 +858,12 @@ class PromptWidget(SAM2Subwidget):
                 memory=self.UNSET,
                 active=self.widget.max_frame_mode_btn.isChecked
             )
-            self._NUM_FRAMES = None
+            self._NUM_FRAMES = 0
         
         def set_num_frames(self, n):
             self._NUM_FRAMES = n
-            self.widget.max_frame_spinbox.setMaximum(
-                self._NUM_FRAMES - (self._max_frames.active())
-            )
+            self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
+            self.widget.start_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
             
         def set_start_frame(self, idx=None):
             if idx == None:
@@ -902,7 +905,7 @@ class PromptWidget(SAM2Subwidget):
             if not buttonChecked: return # Ignore redundant toggle signal
             switch_to_max_mode = self._max_frames.active()
             new_mode, old_mode  = (self._end_frame, self._max_frames)[::(-1)**switch_to_max_mode]
-            self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES - switch_to_max_mode)
+            self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
             old_mode.memory = old_mode.val
             old_mode.val = self.UNSET
             # populate with memory value (last set user value, or UNSET)
