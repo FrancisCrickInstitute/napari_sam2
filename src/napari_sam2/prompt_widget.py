@@ -167,7 +167,6 @@ class PromptWidget(SAM2Subwidget):
         self.max_frame_spinbox = QSpinBox()
         self.max_frame_spinbox.setMinimum(-1)
         self.max_frame_spinbox.setValue(-1)
-        self.max_frame_spinbox.setSpecialValueText("(auto)")
         self.max_frame_spinbox.setToolTip(
             format_tooltip(
                 # TODO: how to word the default value? "defaults to max possible" or "continues to end/start by default" or smth
@@ -188,7 +187,9 @@ class PromptWidget(SAM2Subwidget):
                 self.prop_range.set_num_frames(size_at_dim)
         # Connect relevant widgets
         self.prop_frames_radio_btns.idToggled.connect(self.prop_range._toggle_mode)
+        self.prop_frames_radio_btns.idToggled.connect(self.set_endmax_spinbox_special_text)
         self.start_frame_spinbox.valueChanged.connect(self.prop_range.set_start_frame)
+        self.start_frame_spinbox.valueChanged.connect(self.set_start_spinbox_special_text)
         self.max_frame_spinbox.valueChanged.connect(self.prop_range.set_max_or_end)
         self.end_frame_current_btn.clicked.connect(lambda: self.prop_range.set_max_or_end())
         self.start_frame_current_btn.clicked.connect(lambda: self.prop_range.set_start_frame())
@@ -215,6 +216,9 @@ class PromptWidget(SAM2Subwidget):
                 "Reverse the direction of propagation across the video"
             )
         )
+        # Initialise and link special value text for end/max frame spinbox
+        self.propagate_direction_box.stateChanged.connect(self.set_endmax_spinbox_special_text)
+        self.set_endmax_spinbox_special_text()
         # Cancelleation
         self.cancel_prop_btn = QPushButton("Cancel\nPropagation")
         self.cancel_prop_btn.clicked.connect(self.cancel_propagation)
@@ -390,6 +394,8 @@ class PromptWidget(SAM2Subwidget):
         for obj_id in object_ids:
             if obj_id in self.prompts and len(self.prompts[obj_id]) == 0:
                 self.prompts.pop(obj_id)
+        # Recalculate start frame hint
+        self.set_start_spinbox_special_text()
 
     def on_data_change(self, event):
         # This is only for handling removal of points from our prompt dict
@@ -597,6 +603,7 @@ class PromptWidget(SAM2Subwidget):
                     "processed": False,
                 }
             }
+        self.set_start_spinbox_special_text()
 
     def update_prompt_masks(self, out_obj_ids: dict, frame_idx: int):
         # Update the prompt masks
@@ -680,6 +687,8 @@ class PromptWidget(SAM2Subwidget):
         self.parent.subwidgets["model"].reset_model()
         # Reset the progress bar just to clear previous run
         self.reset_pbar()
+        # Recalculate start frame hint
+        self.set_start_spinbox_special_text()
 
     def store_prompt_layers(self):
         # Store the prompt layers
@@ -911,7 +920,7 @@ class PromptWidget(SAM2Subwidget):
             # populate with memory value (last set user value, or UNSET)
             new_mode.val = new_mode.memory
             self.widget.max_frame_spinbox.setValue(new_mode.memory)
-            # Finally, dis/re-enable reverse prop box if appropriate
+            # Dis/re-enable reverse prop box if appropriate
             self.widget.propagate_direction_box.setEnabled(self._end_frame.val == self.UNSET)
             
         def start_frame(self):
@@ -940,6 +949,19 @@ class PromptWidget(SAM2Subwidget):
             elif self._max_frames.active():
                 return self._max_frames.val
     
+    def set_endmax_spinbox_special_text(self):
+        if self.max_frame_mode_btn.isChecked():
+            # Special value for max frames is, there is no limit!
+            default_text = "(no limit)"
+        else:
+            # End frame special value is either 0 or final frame
+            end_idx = self.prop_range._NUM_FRAMES * (not self.propagate_direction_box.isChecked())
+            default_text = f"(auto: {end_idx})"
+        self.max_frame_spinbox.setSpecialValueText(default_text)
+
+    def set_start_spinbox_special_text(self):
+        self.start_frame_spinbox.setSpecialValueText(f"(auto: {self.prop_range.start_frame()})")
+
     def video_propagate(self):
         # Reset flag to cancel the propagation
         # NOTE: We do it here to ensure after final yield we still reset the progress bar
