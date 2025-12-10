@@ -144,6 +144,7 @@ class PromptWidget(SAM2Subwidget):
         self.start_frame_spinbox.setMinimum(-1)
         self.start_frame_spinbox.setValue(-1)
         self.start_frame_spinbox.setSpecialValueText("(auto)")
+        self.start_frame_spinbox.setAlignment(QtCore.Qt.AlignCenter)
         self.start_frame_spinbox.setToolTip(
             format_tooltip("Starting frame for propagation (-1 for automatic)")
         )
@@ -169,6 +170,7 @@ class PromptWidget(SAM2Subwidget):
         self.max_frame_spinbox = QSpinBox()
         self.max_frame_spinbox.setMinimum(-1)
         self.max_frame_spinbox.setValue(-1)
+        self.max_frame_spinbox.setAlignment(QtCore.Qt.AlignCenter)
         self.max_frame_spinbox.setToolTip(
             format_tooltip(
                 # TODO: how to word the default value? "defaults to max possible" or "continues to end/start by default" or smth
