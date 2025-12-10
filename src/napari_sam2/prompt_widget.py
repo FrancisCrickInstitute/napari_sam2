@@ -17,12 +17,16 @@ from qtpy.QtWidgets import (
     QWidget,
     QLayout,
     QHBoxLayout,
+    QVBoxLayout,
     QPushButton,
     QFileDialog,
     QCheckBox,
     QProgressBar,
     QLabel,
+    QSlider,
 )
+from qtpy.QtCore import Qt, Signal, QRect
+from qtpy.QtGui import QPainter, QColor
 import skimage.io
 import torch
 from tqdm import tqdm
@@ -157,6 +161,8 @@ class PromptWidget(SAM2Subwidget):
         pbar_layout.addWidget(self.pbar_label)
         pbar_layout.addWidget(self.propagate_pbar)
 
+        self.tick_widget = self.create_prompt_scroll_widget()
+
         # Add the buttons to the layout
         self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 3)
         self.layout.addWidget(self.manual_segment_btn, 0, 3, 1, 3)
@@ -169,6 +175,30 @@ class PromptWidget(SAM2Subwidget):
         self.layout.addWidget(self.propagate_direction_box, 4, 2, 1, 2)
         self.layout.addWidget(self.cancel_prop_btn, 4, 4, 1, 2)
         self.layout.addLayout(pbar_layout, 5, 0, 1, 6)
+        self.layout.addWidget(self.tick_widget, 6, 0, 1, 6)
+
+    def create_prompt_scroll_widget(self):
+        qt_dims_widget = self.viewer.window.qt_viewer.dims
+        # The original scrollbar for the scrollable dimension
+        axis_slider = qt_dims_widget.slider_widgets[qt_dims_widget.dims.last_used].slider
+        dim_range = qt_dims_widget.dims.range[qt_dims_widget.dims.last_used]
+
+        # create tick widget
+        tick_widget = PromptTicks()
+        tick_widget.setRange(int(dim_range.start), int(dim_range.stop))
+        tick_widget.slider.valueChanged.connect(self.jump_to_slice)
+        tick_widget.setValue(axis_slider.value())
+        axis_slider.valueChanged.connect(tick_widget.setValue)
+        return tick_widget
+          
+    def get_prompt_colour_dict(self):
+        tick_dict = {}
+        _ = [
+            tick_dict.setdefault(s, []).append(tuple((self.global_colour_cycle.colors[obj_id]*255)[:-1].astype(int)))
+            for obj_id, slices in self.prompts.items()
+            for s in slices
+        ]
+        return tick_dict
 
     def create_prompt_layers(self):
         # NOTE: We want to add labels first so that points is "above", and are better seen
@@ -515,6 +545,10 @@ class PromptWidget(SAM2Subwidget):
                 }
             }
 
+        self.tick_widget.setTicks(
+            self.get_prompt_colour_dict()
+        )
+
     def update_prompt_masks(self, out_obj_ids: dict, frame_idx: int):
         # Update the prompt masks
         label_layer = self.viewer.layers[self.label_layer_name]
@@ -756,6 +790,13 @@ class PromptWidget(SAM2Subwidget):
         else:
             label_layer.selected_label = new_max_label
 
+    def jump_to_slice(self, value):
+        #TODO: generalise to any number of dimensions
+        # Scroll through the image
+        _new_step = list(self.viewer.dims.current_step)
+        _new_step[0] = value
+        self.viewer.dims.current_step = _new_step
+
     def video_propagate(self):
         # Reset flag to cancel the propagation
         # NOTE: We do it here to ensure after final yield we still reset the progress bar
@@ -913,3 +954,132 @@ class PromptWidget(SAM2Subwidget):
     def cancel_propagation(self):
         # Set a flag to cancel the propagation
         self.cancel_prop = True
+
+## -- Partly Vibecoded POC for prompt navigator --
+
+class TickWidget(QWidget):
+    tickClicked = Signal(int)      # emits slice index
+    valueChanged = Signal(int)     # updates when slider moves
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.ticks = {}                # {slice_index: [QColor, ...]}
+        self.handleWidth = 8
+        self.slider_min = 0
+        self.slider_max = 0
+        self.layer_h = 7
+
+    def setSliderRange(self, mn, mx):
+        self.slider_min = mn
+        self.slider_max = mx
+        self.update()
+
+    def setTicks(self, tick_dict):
+        # normalize colors
+        self.ticks = {}
+        for k, v in tick_dict.items():
+            if isinstance(v, (list, tuple)) and all(isinstance(c, (tuple, QColor)) for c in v):
+                self.ticks[k] = [QColor(*c) if isinstance(c, tuple) else c for c in v]
+            else:
+                color = QColor(*v) if isinstance(v, tuple) else v
+                self.ticks[k] = [color]
+        # adjust widget height
+        max_layers = max((len(v) for v in self.ticks.values()), default=0)
+        self.setMinimumHeight(max_layers * self.layer_h)
+
+        self.update()
+
+    def paintEvent(self, ev):
+        if self.slider_max <= self.slider_min or not self.ticks:
+            return
+
+        p = QPainter(self)
+        w = self.width()
+        h = self.height()
+        
+        bar_width = 4 # px
+
+        step = (w - self.handleWidth) / (self.slider_max - self.slider_min)
+
+        for idx, layers in self.ticks.items():
+            t = idx - self.slider_min
+            x = int(t * step + self.handleWidth / 2)
+            
+            for i, color in enumerate(layers):
+                y = i * self.layer_h
+                p.fillRect(QRect(int(x - bar_width / 2), y, bar_width, self.layer_h), color)
+
+    def mousePressEvent(self, ev):
+        if self.slider_max <= self.slider_min:
+            return
+
+        w = self.width()
+        t = ev.x() / float(w)
+        approx = int(self.slider_min + t * (self.slider_max - self.slider_min))
+
+        # pick closest tick by x
+        hit_radius = 5
+        best = None
+        best_dist = None
+
+        for idx in self.ticks.keys():
+            tx = int((idx - self.slider_min) /
+                     (self.slider_max - self.slider_min) * (w - self.handleWidth))
+            tx += self.handleWidth / 2
+            d = abs(ev.x() - tx)
+
+            if d <= hit_radius and (best is None or d < best_dist):
+                best = idx
+                best_dist = d
+
+        if best is not None:
+            self.tickClicked.emit(best)
+            self.valueChanged.emit(best)
+
+class PromptTicks(QWidget):
+    tickClicked = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setPageStep(1)
+
+        self.handleWidth = 8
+        ss = f"""
+            QSlider::handle:horizontal {{
+                width: {self.handleWidth}px;
+                border-radius: {self.handleWidth/2}px;
+            }}
+        """
+        self.slider.setStyleSheet(ss)
+
+        self.ticks = TickWidget()
+        self.ticks.handleWidth = self.handleWidth
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.slider)
+        layout.addWidget(self.ticks)
+
+        # Connect interaction
+        self.ticks.tickClicked.connect(self.slider.setValue)
+        self.ticks.tickClicked.connect(self.tickClicked)
+        self.slider.valueChanged.connect(self.ticks.valueChanged)
+
+    # external API remains the same
+    def setRange(self, mn, mx):
+        self.slider.setRange(mn, mx)
+        self.ticks.setSliderRange(mn, mx)
+
+    def setTicks(self, tick_dict):
+        self.ticks.setTicks(tick_dict)
+        # update tick widget range after ticks change
+        self.ticks.setSliderRange(self.slider.minimum(), self.slider.maximum())
+
+    def value(self):
+        return self.slider.value()
+
+    def setValue(self, v):
+        self.slider.setValue(v)
