@@ -166,11 +166,9 @@ class PromptWidget(SAM2Subwidget):
         ## Prompt navigation
         # - next/previous buttons for all or current object
         # - hightlighted slider
-        
+
         self.navigation_label = QLabel("Prompt navigation")
-        self.navigation_label.setAlignment(
-            Qt.AlignCenter | Qt.AlignVCenter
-        )
+        self.navigation_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
         self.tick_widget = self.create_prompt_scroll_widget()
         self.current_obj_box = QCheckBox("Current object only")
         self.current_obj_box.setChecked(False)
@@ -178,16 +176,16 @@ class PromptWidget(SAM2Subwidget):
             "Restrict navigation to currently selected object label"
         )
         self.current_obj_box.stateChanged.connect(
-            lambda _ : self.redraw_prompt_ticks(id=0)
+            lambda: self.redraw_prompt_ticks(id=0)
         )
         self.previous_btn, self.next_btn = QToolButton(), QToolButton()
         self.previous_btn.setArrowType(Qt.LeftArrow)
         self.next_btn.setArrowType(Qt.RightArrow)
-        self.previous_btn.clicked.connect(lambda _ : 
-            self.on_jump_prompt_slice(back=True)
+        self.previous_btn.clicked.connect(
+            lambda: self.on_jump_prompt_slice(back=True)
         )
-        self.next_btn.clicked.connect(lambda _ : 
-            self.on_jump_prompt_slice(back=False)
+        self.next_btn.clicked.connect(
+            lambda: self.on_jump_prompt_slice(back=False)
         )
 
         # Add the buttons to the layout
@@ -211,7 +209,9 @@ class PromptWidget(SAM2Subwidget):
     def create_prompt_scroll_widget(self):
         qt_dims_widget = self.viewer.window.qt_viewer.dims
         # The original scrollbar for the scrollable dimension
-        axis_slider = qt_dims_widget.slider_widgets[qt_dims_widget.dims.last_used].slider
+        axis_slider = qt_dims_widget.slider_widgets[
+            qt_dims_widget.dims.last_used
+        ].slider
         dim_range = qt_dims_widget.dims.range[qt_dims_widget.dims.last_used]
 
         # create tick widget
@@ -221,14 +221,20 @@ class PromptWidget(SAM2Subwidget):
         tick_widget.setValue(axis_slider.value())
         axis_slider.valueChanged.connect(tick_widget.setValue)
         return tick_widget
-          
-    def get_prompt_colour_dict(self, id: int=0):
+
+    def get_prompt_colour_dict(self, id: int = 0):
         tick_dict = {}
         _ = [
-            tick_dict.setdefault(s, []).append(tuple(
-                (self.global_colour_cycle.colors[obj_id]*255)[:-1].astype(int)
-            ))
-            for obj_id, slices in ({id:self.prompts.get(id, [])} if id else self.prompts).items()
+            tick_dict.setdefault(s, []).append(
+                tuple(
+                    (self.global_colour_cycle.colors[obj_id] * 255)[
+                        :-1
+                    ].astype(int)
+                )
+            )
+            for obj_id, slices in (
+                {id: self.prompts.get(id, [])} if id else self.prompts
+            ).items()
             for s in slices
         ]
         return tick_dict
@@ -239,7 +245,6 @@ class PromptWidget(SAM2Subwidget):
         llayer = self.create_label_layer()
         player = self.create_points_layer()
         return llayer, player
-
 
     def create_label_layer(self):
         # Skip if the layer already exists
@@ -325,7 +330,9 @@ class PromptWidget(SAM2Subwidget):
         self.viewer.window.qt_viewer.controls.widgets[layer].layout().addRow(
             trans._("label:"), colourbox_layout
         )
-        colourbox_widget.selection_spinbox.valueChanged.connect(self.redraw_prompt_ticks)
+        colourbox_widget.selection_spinbox.valueChanged.connect(
+            self.redraw_prompt_ticks
+        )
 
     def remove_objects_from_frames(
         self, object_ids: int | list[int], frame_idxs: int | list[int]
@@ -578,7 +585,7 @@ class PromptWidget(SAM2Subwidget):
                     "processed": False,
                 }
             }
-            
+
         self.redraw_prompt_ticks(id=object_id)
 
     def update_prompt_masks(self, out_obj_ids: dict, frame_idx: int):
@@ -831,44 +838,49 @@ class PromptWidget(SAM2Subwidget):
 
     def jump_to_slice(self, value):
         # Target slice out of range -> do nothing
-        if value not in np.arange(self.viewer.dims.range[self.viewer.dims.last_used].stop+1):
+        if value not in np.arange(
+            self.viewer.dims.range[self.viewer.dims.last_used].stop + 1
+        ):
             return
-        #TODO: generalise to any number of dimensions
+        # TODO: generalise to any number of dimensions
         # Scroll through the image
         _new_step = list(self.viewer.dims.current_step)
         _new_step[0] = value
         self.viewer.dims.current_step = _new_step
-        
+
     def get_next_prompt_slice(self, current_only=True, back=False):
         idx = self.viewer.dims.current_step[0]
         if current_only:
             # Process prompts for current object id only
             id_prompts = self.prompts.get(
                 self.viewer.layers[self.label_layer_name].selected_label,
-                {} # no prompts yet for this id
+                {},  # no prompts yet for this id
             )
             slices = np.array([*id_prompts.keys()])
-        else: 
+        else:
             # Check all prompted frames, ignoring object id
-            slices = np.array([*chain.from_iterable(
-                (k for k in i) for i in self.prompts.values()
-            )])
+            slices = np.array(
+                [
+                    *chain.from_iterable(
+                        (k for k in i) for i in self.prompts.values()
+                    )
+                ]
+            )
         if back:
-            s = slices[slices<idx]
+            s = slices[slices < idx]
             if len(s):
                 return s.max()
         else:
-            s = slices[slices>idx]
+            s = slices[slices > idx]
             if len(s):
                 return s.min()
         # No prompts to skip to!
-        return -1     
+        return -1
 
     def on_jump_prompt_slice(self, back):
         self.jump_to_slice(
             self.get_next_prompt_slice(
-                current_only=self.current_obj_box.isChecked(),
-                back=back
+                current_only=self.current_obj_box.isChecked(), back=back
             )
         )
 
@@ -1033,19 +1045,29 @@ class PromptWidget(SAM2Subwidget):
     def redraw_prompt_ticks(self, id=0):
         self.tick_widget.setTicks(
             self.get_prompt_colour_dict(
-                id=(self.current_obj_box.isChecked()*(id or self.viewer.layers[self.label_layer_name].selected_label))
+                id=(
+                    self.current_obj_box.isChecked()
+                    * (
+                        id
+                        or self.viewer.layers[
+                            self.label_layer_name
+                        ].selected_label
+                    )
+                )
             )
         )
-        
+
+
 ## -- Partly Vibecoded POC for prompt navigator --
 
+
 class TickWidget(QWidget):
-    tickClicked = Signal(int)      # emits slice index
-    valueChanged = Signal(int)     # updates when slider moves
+    tickClicked = Signal(int)  # emits slice index
+    valueChanged = Signal(int)  # updates when slider moves
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.ticks = {}                # {slice_index: [QColor, ...]}
+        self.ticks = {}  # {slice_index: [QColor, ...]}
         self.handleWidth = 8
         self.slider_min = 0
         self.slider_max = 0
@@ -1060,8 +1082,12 @@ class TickWidget(QWidget):
         # normalize colors
         self.ticks = {}
         for k, v in tick_dict.items():
-            if isinstance(v, (list, tuple)) and all(isinstance(c, (tuple, QColor)) for c in v):
-                self.ticks[k] = [QColor(*c) if isinstance(c, tuple) else c for c in v]
+            if isinstance(v, (list, tuple)) and all(
+                isinstance(c, (tuple, QColor)) for c in v
+            ):
+                self.ticks[k] = [
+                    QColor(*c) if isinstance(c, tuple) else c for c in v
+                ]
             else:
                 color = QColor(*v) if isinstance(v, tuple) else v
                 self.ticks[k] = [color]
@@ -1078,18 +1104,21 @@ class TickWidget(QWidget):
         p = QPainter(self)
         w = self.width()
         h = self.height()
-        
-        bar_width = 4 # px
+
+        bar_width = 4  # px
 
         step = (w - self.handleWidth) / (self.slider_max - self.slider_min)
 
         for idx, layers in self.ticks.items():
             t = idx - self.slider_min
             x = int(t * step + self.handleWidth / 2)
-            
+
             for i, color in enumerate(layers):
                 y = i * self.layer_h
-                p.fillRect(QRect(int(x - bar_width / 2), y, bar_width, self.layer_h), color)
+                p.fillRect(
+                    QRect(int(x - bar_width / 2), y, bar_width, self.layer_h),
+                    color,
+                )
 
     def mousePressEvent(self, ev):
         if self.slider_max <= self.slider_min:
@@ -1105,8 +1134,11 @@ class TickWidget(QWidget):
         best_dist = None
 
         for idx in self.ticks.keys():
-            tx = int((idx - self.slider_min) /
-                     (self.slider_max - self.slider_min) * (w - self.handleWidth))
+            tx = int(
+                (idx - self.slider_min)
+                / (self.slider_max - self.slider_min)
+                * (w - self.handleWidth)
+            )
             tx += self.handleWidth / 2
             d = abs(ev.x() - tx)
 
@@ -1117,6 +1149,7 @@ class TickWidget(QWidget):
         if best is not None:
             self.tickClicked.emit(best)
             self.valueChanged.emit(best)
+
 
 class PromptTicks(QWidget):
     tickClicked = Signal(int)
@@ -1131,7 +1164,7 @@ class PromptTicks(QWidget):
         ss = f"""
             QSlider::handle:horizontal {{
                 width: {self.handleWidth}px;
-                border-radius: {self.handleWidth/2}px;
+                border-radius: {self.handleWidth / 2}px;
             }}
         """
         self.slider.setStyleSheet(ss)
