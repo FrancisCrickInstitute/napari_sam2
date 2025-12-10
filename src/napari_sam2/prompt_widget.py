@@ -893,6 +893,7 @@ class PromptWidget(SAM2Subwidget):
             self._NUM_FRAMES = n
             self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
             self.widget.start_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
+            self.widget.set_endmax_spinbox_special_text()
 
         def set_start_frame(self, idx: int | None = None):
             if idx is None:
