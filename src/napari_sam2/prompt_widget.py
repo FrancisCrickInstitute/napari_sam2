@@ -28,7 +28,7 @@ from qtpy.QtWidgets import (
     QButtonGroup,
     QRadioButton,
 )
-from qtpy.QtCore import Qt
+from qtpy import QtCore
 import skimage.io
 import torch
 from tqdm import tqdm
