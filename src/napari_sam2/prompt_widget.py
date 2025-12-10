@@ -2,8 +2,10 @@ from pathlib import Path
 import os
 from typing import TYPE_CHECKING
 import warnings
+from itertools import chain
 
 from app_model.types import KeyCode
+from napari._qt.dialogs.qt_activity_dialog import QToolButton
 from napari.layers.base import no_op
 from napari.layers.points._points_constants import Mode
 from napari.qt.threading import thread_worker
@@ -161,7 +163,32 @@ class PromptWidget(SAM2Subwidget):
         pbar_layout.addWidget(self.pbar_label)
         pbar_layout.addWidget(self.propagate_pbar)
 
+        ## Prompt navigation
+        # - next/previous buttons for all or current object
+        # - hightlighted slider
+        
+        self.navigation_label = QLabel("Prompt navigation")
+        self.navigation_label.setAlignment(
+            Qt.AlignCenter | Qt.AlignVCenter
+        )
         self.tick_widget = self.create_prompt_scroll_widget()
+        self.current_obj_box = QCheckBox("Current object only")
+        self.current_obj_box.setChecked(False)
+        self.current_obj_box.setToolTip(
+            "Restrict navigation to currently selected object label"
+        )
+        self.current_obj_box.stateChanged.connect(
+            lambda _ : self.redraw_prompt_ticks(id=0)
+        )
+        self.previous_btn, self.next_btn = QToolButton(), QToolButton()
+        self.previous_btn.setArrowType(Qt.LeftArrow)
+        self.next_btn.setArrowType(Qt.RightArrow)
+        self.previous_btn.clicked.connect(lambda _ : 
+            self.on_jump_prompt_slice(back=True)
+        )
+        self.next_btn.clicked.connect(lambda _ : 
+            self.on_jump_prompt_slice(back=False)
+        )
 
         # Add the buttons to the layout
         self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 3)
@@ -175,7 +202,11 @@ class PromptWidget(SAM2Subwidget):
         self.layout.addWidget(self.propagate_direction_box, 4, 2, 1, 2)
         self.layout.addWidget(self.cancel_prop_btn, 4, 4, 1, 2)
         self.layout.addLayout(pbar_layout, 5, 0, 1, 6)
-        self.layout.addWidget(self.tick_widget, 6, 0, 1, 6)
+        self.layout.addWidget(self.navigation_label, 6, 0, 1, 6)
+        self.layout.addWidget(self.current_obj_box, 7, 0, 1, 2)
+        self.layout.addWidget(self.previous_btn, 7, 2, 1, 1)
+        self.layout.addWidget(self.next_btn, 7, 3, 1, 1)
+        self.layout.addWidget(self.tick_widget, 8, 0, 1, 6)
 
     def create_prompt_scroll_widget(self):
         qt_dims_widget = self.viewer.window.qt_viewer.dims
@@ -191,11 +222,13 @@ class PromptWidget(SAM2Subwidget):
         axis_slider.valueChanged.connect(tick_widget.setValue)
         return tick_widget
           
-    def get_prompt_colour_dict(self):
+    def get_prompt_colour_dict(self, id: int=0):
         tick_dict = {}
         _ = [
-            tick_dict.setdefault(s, []).append(tuple((self.global_colour_cycle.colors[obj_id]*255)[:-1].astype(int)))
-            for obj_id, slices in self.prompts.items()
+            tick_dict.setdefault(s, []).append(tuple(
+                (self.global_colour_cycle.colors[obj_id]*255)[:-1].astype(int)
+            ))
+            for obj_id, slices in ({id:self.prompts.get(id, [])} if id else self.prompts).items()
             for s in slices
         ]
         return tick_dict
@@ -292,6 +325,7 @@ class PromptWidget(SAM2Subwidget):
         self.viewer.window.qt_viewer.controls.widgets[layer].layout().addRow(
             trans._("label:"), colourbox_layout
         )
+        colourbox_widget.selection_spinbox.valueChanged.connect(self.redraw_prompt_ticks)
 
     def remove_objects_from_frames(
         self, object_ids: int | list[int], frame_idxs: int | list[int]
@@ -544,10 +578,8 @@ class PromptWidget(SAM2Subwidget):
                     "processed": False,
                 }
             }
-
-        self.tick_widget.setTicks(
-            self.get_prompt_colour_dict()
-        )
+            
+        self.redraw_prompt_ticks(id=object_id)
 
     def update_prompt_masks(self, out_obj_ids: dict, frame_idx: int):
         # Update the prompt masks
@@ -618,6 +650,8 @@ class PromptWidget(SAM2Subwidget):
         self.remove_objects_from_frames(
             object_ids=list(self.prompts.keys()), frame_idxs=frame_idx
         )
+        # Remove prompt ticks from navigation
+        self.redraw_prompt_ticks()
 
     def reset_prompt_layers(self):
         # NOTE: To avoid triggering data change events, we delete the layers and recreate them
@@ -631,6 +665,8 @@ class PromptWidget(SAM2Subwidget):
         self.parent.subwidgets["model"].reset_model()
         # Reset the progress bar just to clear previous run
         self.reset_pbar()
+        # Remove prompt ticks from navigation
+        self.redraw_prompt_ticks()
 
     def store_prompt_layers(self):
         # Store the prompt layers
@@ -774,11 +810,13 @@ class PromptWidget(SAM2Subwidget):
         # Increase the label for the selected point
         label_layer = self.viewer.layers[self.label_layer_name]
         label_layer.selected_label += 1
+        self.redraw_prompt_ticks()
 
     def on_decrease_label(self, layer):
         # Decrease the label for the selected point
         label_layer = self.viewer.layers[self.label_layer_name]
         label_layer.selected_label -= 1
+        self.redraw_prompt_ticks()
 
     def select_max_label(self, layer):
         # Get the next available label
@@ -789,13 +827,50 @@ class PromptWidget(SAM2Subwidget):
             label_layer.selected_label = 1
         else:
             label_layer.selected_label = new_max_label
+        self.redraw_prompt_ticks()
 
     def jump_to_slice(self, value):
+        # Target slice out of range -> do nothing
+        if value not in np.arange(self.viewer.dims.range[self.viewer.dims.last_used].stop+1):
+            return
         #TODO: generalise to any number of dimensions
         # Scroll through the image
         _new_step = list(self.viewer.dims.current_step)
         _new_step[0] = value
         self.viewer.dims.current_step = _new_step
+        
+    def get_next_prompt_slice(self, current_only=True, back=False):
+        idx = self.viewer.dims.current_step[0]
+        if current_only:
+            # Process prompts for current object id only
+            id_prompts = self.prompts.get(
+                self.viewer.layers[self.label_layer_name].selected_label,
+                {} # no prompts yet for this id
+            )
+            slices = np.array([*id_prompts.keys()])
+        else: 
+            # Check all prompted frames, ignoring object id
+            slices = np.array([*chain.from_iterable(
+                (k for k in i) for i in self.prompts.values()
+            )])
+        if back:
+            s = slices[slices<idx]
+            if len(s):
+                return s.max()
+        else:
+            s = slices[slices>idx]
+            if len(s):
+                return s.min()
+        # No prompts to skip to!
+        return -1     
+
+    def on_jump_prompt_slice(self, back):
+        self.jump_to_slice(
+            self.get_next_prompt_slice(
+                current_only=self.current_obj_box.isChecked(),
+                back=back
+            )
+        )
 
     def video_propagate(self):
         # Reset flag to cancel the propagation
@@ -955,6 +1030,13 @@ class PromptWidget(SAM2Subwidget):
         # Set a flag to cancel the propagation
         self.cancel_prop = True
 
+    def redraw_prompt_ticks(self, id=0):
+        self.tick_widget.setTicks(
+            self.get_prompt_colour_dict(
+                id=(self.current_obj_box.isChecked()*(id or self.viewer.layers[self.label_layer_name].selected_label))
+            )
+        )
+        
 ## -- Partly Vibecoded POC for prompt navigator --
 
 class TickWidget(QWidget):
