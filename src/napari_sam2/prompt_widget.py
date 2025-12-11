@@ -136,6 +136,14 @@ class PromptWidget(SAM2Subwidget):
             )
         )
 
+        # Propagation direction
+        self.propagate_direction_box = QCheckBox("Reverse\nPropagation")
+        self.propagate_direction_box.setChecked(False)
+        self.propagate_direction_box.setToolTip(
+            format_tooltip(
+                "Reverse the direction of propagation across the video"
+            )
+        )
         ##  Limiting propagation range
         # Starting frame
         self.start_frame_label = QLabel("Start\nFrame")
@@ -230,14 +238,6 @@ class PromptWidget(SAM2Subwidget):
         range_ctl_layout_3.addWidget(self.max_frame_spinbox)
         range_ctl_layout_3.addWidget(self.end_frame_current_btn)
 
-        # Propagation direction
-        self.propagate_direction_box = QCheckBox("Reverse\nPropagation")
-        self.propagate_direction_box.setChecked(False)
-        self.propagate_direction_box.setToolTip(
-            format_tooltip(
-                "Reverse the direction of propagation across the video"
-            )
-        )
         # Initialise and link special value text for end/max frame spinbox
         self.propagate_direction_box.stateChanged.connect(
             self.set_endmax_spinbox_special_text
