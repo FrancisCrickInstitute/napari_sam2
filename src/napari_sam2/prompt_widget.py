@@ -149,6 +149,10 @@ class PromptWidget(SAM2Subwidget):
                 "Reverse the direction of propagation across the video"
             )
         )
+
+        # Initialised prompt navigation widget, so it can be connected to events
+        self.create_prompt_scroll_widget()
+
         ##  Limiting propagation range
         # Starting frame
         self.start_frame_label = QLabel("Start\nFrame")
@@ -275,7 +279,6 @@ class PromptWidget(SAM2Subwidget):
 
         self.navigation_label = QLabel("Prompt navigation")
         self.navigation_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        self.tick_widget = self.create_prompt_scroll_widget()
         self.current_obj_box = QCheckBox("Current object only")
         self.current_obj_box.setChecked(False)
         self.current_obj_box.setToolTip(
@@ -317,20 +320,25 @@ class PromptWidget(SAM2Subwidget):
         self.layout.addWidget(self.tick_widget, 10, 0, 1, 6)
 
     def create_prompt_scroll_widget(self):
+        self.tick_widget = PromptTicks()
+        self.tick_widget.slider.valueChanged.connect(self.jump_to_slice)
+        # Connect with current active scrollable dimension
+        self.refresh_prompt_scroll_widget()
+
+    def refresh_prompt_scroll_widget(self):
         qt_dims_widget = self.viewer.window.qt_viewer.dims
         # The original scrollbar for the scrollable dimension
         axis_slider = qt_dims_widget.slider_widgets[
             qt_dims_widget.dims.last_used
         ].slider
         dim_range = qt_dims_widget.dims.range[qt_dims_widget.dims.last_used]
-
-        # create tick widget
-        tick_widget = PromptTicks()
-        tick_widget.setRange(int(dim_range.start), int(dim_range.stop))
-        tick_widget.slider.valueChanged.connect(self.jump_to_slice)
-        tick_widget.setValue(axis_slider.value())
-        axis_slider.valueChanged.connect(tick_widget.setValue)
-        return tick_widget
+        # Set correct frame range
+        # Note: We set the slider to match the viewer slider, not self.prop_range._NUM_FRAMES
+        # as these may be different if multiple image layers are loaded
+        self.tick_widget.setRange(int(dim_range.start), int(dim_range.stop))
+        self.tick_widget.setValue(axis_slider.value())
+        # Link back to active slider
+        axis_slider.valueChanged.connect(self.tick_widget.setValue)
 
     def get_prompt_colour_dict(self, id: int = 0):
         tick_dict = {}
@@ -965,6 +973,8 @@ class PromptWidget(SAM2Subwidget):
 
     def get_next_prompt_slice(self, current_only=True, back=False):
         idx = self.viewer.dims.current_step[0]
+        if not self.prompts or self.label_layer_name not in self.viewer.layers:
+            return -1
         if current_only:
             # Process prompts for current object id only
             id_prompts = self.prompts.get(
@@ -1024,6 +1034,7 @@ class PromptWidget(SAM2Subwidget):
             self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
             self.widget.start_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
             self.widget.set_endmax_spinbox_special_text()
+            self.widget.refresh_prompt_scroll_widget()
 
         def set_start_frame(self, idx: int | None = None):
             if idx is None:
@@ -1315,6 +1326,9 @@ class PromptWidget(SAM2Subwidget):
         self.cancel_prop = True
 
     def redraw_prompt_ticks(self, id=0):
+        if not self.prompts or self.label_layer_name not in self.viewer.layers:
+            self.tick_widget.setTicks({})
+            return
         self.tick_widget.setTicks(
             self.get_prompt_colour_dict(
                 id=(
