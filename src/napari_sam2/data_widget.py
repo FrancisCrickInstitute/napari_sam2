@@ -6,7 +6,7 @@ from napari.utils.notifications import show_info
 from qtpy.QtWidgets import QWidget, QPushButton, QComboBox, QLabel, QLayout
 
 from napari_sam2.subwidget import SAM2Subwidget
-from napari_sam2.utils import format_tooltip
+from napari_sam2.utils import format_tooltip, get_active_dim_size
 
 if TYPE_CHECKING:
     import napari
@@ -84,6 +84,10 @@ class DataWidget(SAM2Subwidget):
             self.current_layer.name,
             self.parent.subwidgets["model"].memory_mode,
         )
+        # Set max value for number of frames to propagate
+        self.parent.subwidgets["prompt"].prop_range.set_num_frames(
+            self.parent.subwidgets["model"].inference_state["num_frames"]
+        )
 
     def layer_added(self, event):
         if isinstance(event.value, Image):
@@ -121,6 +125,16 @@ class DataWidget(SAM2Subwidget):
             return
         # Check whether we have embeddings for this layer or not
         self.check_embedding_btn()
+        if "prompt" in self.parent.subwidgets:
+            if self.current_layer is not None:
+                # calc_embeddings already sets num frames, so only need to do it here
+                # if no embeddings calculated yet
+                if not self.embeddings_calcd:
+                    _, size_at_dim = get_active_dim_size(self.viewer, self.current_layer)
+                    self.parent.subwidgets["prompt"].prop_range.set_num_frames(size_at_dim)
+            else:
+                # No current layer selected, unset max/end frames spinbox limit
+                self.parent.subwidgets["prompt"].prop_range.set_num_frames(0)
 
     def check_embedding_btn(
         self,

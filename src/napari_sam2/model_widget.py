@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Optional
 import hydra
 from hydra import initialize_config_dir
 from napari.qt.threading import thread_worker
+from napari._qt.qt_resources import QColoredSVGIcon
 from napari.utils import progress
 from napari.utils.notifications import show_error, show_info
 import numpy as np
@@ -21,6 +22,7 @@ from qtpy.QtWidgets import (
     QCheckBox,
 )
 from qtpy import QtCore
+from qtpy.QtGui import QDesktopServices
 import requests
 from sam2.build_sam import build_sam2_video_predictor
 from skimage.util import img_as_ubyte
@@ -32,25 +34,56 @@ from napari_sam2.utils import format_tooltip, get_device, configure_cuda
 if TYPE_CHECKING:
     import napari
 
-SAM2_BASE_URL = "https://dl.fbaipublicfiles.com/segment_anything_2/092824"
 SAM2_CONFIG_DIR = files("napari_sam2.sam2_configs")
 MODEL_DICT = {
-    "Base Plus": {
-        "filename": "sam2.1_hiera_base_plus.pt",
-        "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_b+.yaml"),
+    "Meta" :  {
+        "base_url" : "https://dl.fbaipublicfiles.com/segment_anything_2/092824",
+        "help_url" : "https://github.com/facebookresearch/sam2?tab=readme-ov-file#sam-21-checkpoints",
+        "models" : {
+            "Base Plus": {
+                "filename": "sam2.1_hiera_base_plus.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_b+.yaml"),
+            },
+            "Large": {
+                "filename": "sam2.1_hiera_large.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_l.yaml"),
+            },
+            "Small": {
+                "filename": "sam2.1_hiera_small.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_s.yaml"),
+            },
+            "Tiny": {
+                "filename": "sam2.1_hiera_tiny.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t.yaml"),
+            },
+        },
     },
-    "Large": {
-        "filename": "sam2.1_hiera_large.pt",
-        "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_l.yaml"),
-    },
-    "Small": {
-        "filename": "sam2.1_hiera_small.pt",
-        "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_s.yaml"),
-    },
-    "Tiny": {
-        "filename": "sam2.1_hiera_tiny.pt",
-        "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t.yaml"),
-    },
+    "MedSAM2" : {
+        "base_url" : "https://huggingface.co/wanglab/MedSAM2/resolve/main",
+        "help_url" : "https://huggingface.co/wanglab/MedSAM2#available-models",
+        "models" : {
+            "latest": {
+                "filename":  "MedSAM2_latest.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t512.yaml"),
+            },
+            "CTLesion" : {
+                "filename":  "MedSAM2_CTLesion.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t512.yaml"),
+            },
+            "MRI_LiverLesion" : {
+                "filename":  "MedSAM2_MRI_LiverLesion.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t512.yaml"),
+            },
+            "US_Heart" : {
+                "filename":  "MedSAM2_US_Heart.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t512.yaml"),
+            },
+            "2411" : {
+                "filename":  "MedSAM2_2411.pt",
+                "config": SAM2_CONFIG_DIR.joinpath("sam2.1_hiera_t512.yaml"),
+            }
+        }
+    }
 }
 
 
@@ -78,6 +111,7 @@ class ModelWidget(SAM2Subwidget):
         self.download_dir = self.default_download_dir
         # Vars for model path and type
         self.model_path = None
+        self.model_family = None
         self.model_type = None
         # Flag for model loaded
         self.model_loaded = False
@@ -113,18 +147,45 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                 """
             )
         )
-
+        self.family_label = QLabel("Model Family:")
+        self.family_label.setAlignment(
+            QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
+        )
+        self.family_combo = QComboBox()
+        self.family_combo.addItems(MODEL_DICT.keys())
+        self.family_combo.setToolTip(
+            format_tooltip(
+                "Select model family."
+            )
+        )
+        self.model_family = self.family_combo.currentText()
+        
         self.model_label = QLabel("Model Version:")
         self.model_label.setAlignment(
             QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter
         )
         self.model_combo = QComboBox()
-        self.model_combo.addItems(MODEL_DICT.keys())
+        self.model_combo.addItems(MODEL_DICT[self.model_family]['models'].keys())
         self.model_combo.setToolTip(
             format_tooltip(
                 "Select which model to use. Note that changing the model will clear any pre-calculated embeddings."
             )
         )
+        self.help_link = QPushButton("")
+        self.help_link.setIcon(
+            QColoredSVGIcon.from_resources("help").colored(theme="dark")
+        )
+        self.help_link.setFixedSize(30, 30)
+        self.help_link.setIconSize(self.help_link.size() * 0.65)
+        self.help_link.setToolTip(
+            "Open model family checkpoint information (external link)"
+        )
+        self.help_link.clicked.connect(lambda: QDesktopServices.openUrl(
+            QtCore.QUrl(MODEL_DICT[self.model_family]['help_url'])
+        ))
+        
+        # Connect family and model dropdown options
+        self.family_combo.currentIndexChanged.connect(self.family_changed)
 
         self.download_loc_btn = QPushButton("Change Model Folder")
         self.download_loc_btn.setToolTip(
@@ -179,29 +240,31 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         self.model_type = self.model_combo.currentText()
 
         # Add widgets to layout
-        self.layout.addWidget(self.device_label, 0, 0, 1, 2)
-        self.layout.addWidget(self.model_label, 1, 0, 1, 1)
-        self.layout.addWidget(self.model_combo, 1, 1, 1, 1)
-        self.layout.addWidget(self.download_loc_btn, 2, 0, 1, 1)
-        self.layout.addWidget(self.download_loc_text, 2, 1, 1, 1)
-        self.layout.addWidget(self.low_memory_cb, 3, 0, 1, 1)
-        self.layout.addWidget(self.super_low_memory_cb, 4, 0, 1, 1)
-        self.layout.addWidget(self.load_btn, 3, 1, 2, 1)
+        self.layout.addWidget(self.device_label, 0, 0, 1, -1)
+        self.layout.addWidget(self.family_label, 1, 0, 1, 1)
+        self.layout.addWidget(self.family_combo, 1, 1, 1, 2)
+        self.layout.addWidget(self.model_label, 2, 0, 1, 1)
+        self.layout.addWidget(self.model_combo, 2, 1, 1, 2)
+        self.layout.addWidget(self.help_link, 1, 3, 2, -1)
+        self.layout.addWidget(self.download_loc_btn, 3, 0, 1, 2)
+        self.layout.addWidget(self.download_loc_text, 3, 2, 1, -1)
+        self.layout.addWidget(self.low_memory_cb, 4, 0, 1, 2)
+        self.layout.addWidget(self.super_low_memory_cb, 5, 0, 1, 2)
+        self.layout.addWidget(self.load_btn, 4, 2, 2, -1)
 
     def _check_model_exists(self):
-        # Get current model type
-        model_type = self.model_type
         # Check if model exists
-        model_fname = MODEL_DICT[model_type]["filename"]
+        model_fname = MODEL_DICT[self.model_family]["models"][self.model_type]["filename"]
         model_path = self.download_dir / model_fname
         return model_path.exists()
 
     def load_model(self):
+        model_info = MODEL_DICT[self.model_family]["models"][self.model_type]
         if not self._check_model_exists():
             self.download_model()
         else:
             self.model_path = (
-                self.download_dir / MODEL_DICT[self.model_type]["filename"]
+                self.download_dir / model_info["filename"]
             )
             if not self.model_path.exists():
                 show_error(
@@ -212,11 +275,12 @@ If you have a GPU but it is not being used, please check your PyTorch installati
         hydra.core.global_hydra.GlobalHydra.instance().clear()
         with initialize_config_dir(
             config_dir=str(
-                MODEL_DICT[self.model_type]["config"].parent.resolve()
-            )
+                model_info["config"].parent.resolve()
+            ),
+            version_base=None # Suppress hydra compatability version warning
         ):
             self.sam2_model = build_sam2_video_predictor(
-                config_file=str(MODEL_DICT[self.model_type]["config"].stem),
+                config_file=str(model_info["config"].stem),
                 ckpt_path=str(self.model_path),
                 device=self.device,
                 vos_optimized=False,  # Setting to True should be faster
@@ -232,9 +296,9 @@ If you have a GPU but it is not being used, please check your PyTorch installati
 
     def download_model(self):
         show_info(f"Downloading {self.model_type} model...")
-        model_dict = MODEL_DICT[self.model_type]
+        model_dict = MODEL_DICT[self.model_family]["models"][self.model_type]
         # Download the model
-        model_url = f"{SAM2_BASE_URL}/{model_dict['filename']}"
+        model_url = f"{MODEL_DICT[self.model_family]['base_url']}/{model_dict['filename']}"
         # Open the URL and get the content length
         req = requests.get(model_url, stream=True)
         req.raise_for_status()
@@ -413,6 +477,11 @@ If you have a GPU but it is not being used, please check your PyTorch installati
     def model_changed(self):
         self.model_type = self.model_combo.currentText()
         self.check_model_load_btn()
+        
+    def family_changed(self):
+        self.model_family = self.family_combo.currentText()
+        self.model_combo.clear()
+        self.model_combo.addItems(MODEL_DICT[self.model_family]['models'].keys())
 
     def add_point_prompt(self, object_id, prompt_dict, frame_idx):
         # Add new points to model
