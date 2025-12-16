@@ -1,9 +1,9 @@
 # Enhanced SAM2 Napari Plugin
 
 > [!NOTE]
-> This is a **work in progress** as part of a live project within the SEAI STP. If you come across this repo and are interested please contact [Cameron Shand](mailto:cameron.shand@crick.ac.uk).
+> This is a **work in progress** as part of a live project within the SEAI (Software Engineering & AI) STP. If you come across this repo and are interested please contact [Cameron Shand](mailto:cameron.shand@crick.ac.uk) or [Fiona Young](mailto:fiona.young@crick.ac.uk).
 
-A plugin for interactive use of SAM2 for segmentation and tracking
+A plugin for interactive use of SAM2 for segmentation and tracking.
 
 ----------------------------------
 
@@ -13,7 +13,7 @@ This [napari] plugin was generated with [copier] using the [napari-plugin-templa
 
 - SAM2 improvements:
     - Low-memory mode allows easier use of SAM2 for longer videos/larger stacks by avoiding GPU memory accumulation [issue](https://github.com/facebookresearch/sam2/issues/264)
-- No hard CUDA/GPU requirement
+- No hard CUDA/GPU requirement (though recommended!)
 - Intuitive usage, utilizing keybinds to speed up annotation
     - Includes proper resetting of model state when adding/removing prompts for existing objects
 - Prompt import/export for working across sessions
@@ -41,7 +41,7 @@ If you're at the Crick, and want to use `napari-sam2` (before it's been handily 
 
 If you have any issues with the above, likely a `Disk quota exceeded`, you need to ensure that your `.conda` and `.cache` folders in your home directory are symlinked somewhere with more space. Ask HPC if you are unsure how to do this.
 
-Any other issues, contact me!
+Any other issues, Crick users can email/Slack us or join the `#sam2-napari-plugin` Slack channel.
 
 ## Usage
 For guidance on best usage and further detail on features such as the "low-memory mode", please see the [Usage Guide](USAGE.md).
