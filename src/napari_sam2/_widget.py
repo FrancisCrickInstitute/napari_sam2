@@ -7,6 +7,7 @@ from qtpy.QtWidgets import (
     QPushButton,
     QWidget,
     QVBoxLayout,
+    QScrollArea
 )
 
 from napari_sam2.data_widget import DataWidget
@@ -26,9 +27,23 @@ class SAM2MainWidget(QWidget):
         super().__init__()
         self.viewer = viewer
 
-        self.setLayout(QVBoxLayout())
         # self.layout().setAlignment(qtpy.QtCore.Qt.AlignTop)
 
+        # Wrap current layout in a container
+        self.container = QWidget()
+        self.container_layout = QVBoxLayout(self.container)
+        self.container.setLayout(self.container_layout)
+
+        # Scroll area
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setWidget(self.container)
+
+        # Main layout just contains the scroll area
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(self.scroll)
+        self.setLayout(main_layout)
+        
         # Create a horizontal layout for the buttons
         button_layout = QHBoxLayout()
         button_layout.setContentsMargins(0, 0, 0, 0)

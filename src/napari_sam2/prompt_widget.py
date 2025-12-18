@@ -2,9 +2,11 @@ from pathlib import Path
 import os
 from typing import TYPE_CHECKING
 import warnings
+from itertools import chain
 from types import SimpleNamespace
 
 from app_model.types import KeyCode
+from napari._qt.dialogs.qt_activity_dialog import QToolButton
 from napari.layers.base import no_op
 from napari.layers.points._points_constants import Mode
 from napari.qt.threading import thread_worker
@@ -24,11 +26,14 @@ from qtpy.QtWidgets import (
     QCheckBox,
     QProgressBar,
     QLabel,
+    QSlider,
     QSpinBox,
     QButtonGroup,
     QRadioButton,
 )
 from qtpy import QtCore
+from qtpy.QtCore import Qt, Signal, QRect
+from qtpy.QtGui import QPainter, QColor
 import skimage.io
 import torch
 from tqdm import tqdm
@@ -144,6 +149,10 @@ class PromptWidget(SAM2Subwidget):
                 "Reverse the direction of propagation across the video"
             )
         )
+
+        # Initialised prompt navigation widget, so it can be connected to events
+        self.create_prompt_scroll_widget()
+
         ##  Limiting propagation range
         # Starting frame
         self.start_frame_label = QLabel("Start\nFrame")
@@ -264,6 +273,30 @@ class PromptWidget(SAM2Subwidget):
         pbar_layout.addWidget(self.pbar_label)
         pbar_layout.addWidget(self.propagate_pbar)
 
+        ## Prompt navigation
+        # - next/previous buttons for all or current object
+        # - hightlighted slider
+
+        self.navigation_label = QLabel("Prompt navigation")
+        self.navigation_label.setAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+        self.current_obj_box = QCheckBox("Current object only")
+        self.current_obj_box.setChecked(False)
+        self.current_obj_box.setToolTip(
+            "Restrict navigation to currently selected object label"
+        )
+        self.current_obj_box.stateChanged.connect(
+            lambda: self.redraw_prompt_ticks(id=0)
+        )
+        self.previous_btn, self.next_btn = QToolButton(), QToolButton()
+        self.previous_btn.setArrowType(Qt.LeftArrow)
+        self.next_btn.setArrowType(Qt.RightArrow)
+        self.previous_btn.clicked.connect(
+            lambda: self.on_jump_prompt_slice(back=True)
+        )
+        self.next_btn.clicked.connect(
+            lambda: self.on_jump_prompt_slice(back=False)
+        )
+
         # Add the buttons to the layout
         self.layout.addWidget(self.auto_segment_tickbox, 0, 0, 1, 3)
         self.layout.addWidget(self.manual_segment_btn, 0, 3, 1, 3)
@@ -280,6 +313,49 @@ class PromptWidget(SAM2Subwidget):
         self.layout.addLayout(range_ctl_layout_2, 5, 3, 2, 1)
         self.layout.addLayout(range_ctl_layout_3, 5, 4, 2, 2)
         self.layout.addLayout(pbar_layout, 7, 0, 1, 6)
+        self.layout.addWidget(self.navigation_label, 8, 0, 1, 6)
+        self.layout.addWidget(self.current_obj_box, 9, 0, 1, 2)
+        self.layout.addWidget(self.previous_btn, 9, 2, 1, 1)
+        self.layout.addWidget(self.next_btn, 9, 3, 1, 1)
+        self.layout.addWidget(self.tick_widget, 10, 0, 1, 6)
+
+    def create_prompt_scroll_widget(self):
+        self.tick_widget = PromptTicks()
+        self.tick_widget.slider.valueChanged.connect(self.jump_to_slice)
+        # Connect with current active scrollable dimension
+        self.refresh_prompt_scroll_widget()
+
+    def refresh_prompt_scroll_widget(self):
+        qt_dims_widget = self.viewer.window.qt_viewer.dims
+        # The original scrollbar for the scrollable dimension
+        axis_slider = qt_dims_widget.slider_widgets[
+            qt_dims_widget.dims.last_used
+        ].slider
+        dim_range = qt_dims_widget.dims.range[qt_dims_widget.dims.last_used]
+        # Set correct frame range
+        # Note: We set the slider to match the viewer slider, not self.prop_range._NUM_FRAMES
+        # as these may be different if multiple image layers are loaded
+        self.tick_widget.setRange(int(dim_range.start), int(dim_range.stop))
+        self.tick_widget.setValue(axis_slider.value())
+        # Link back to active slider
+        axis_slider.valueChanged.connect(self.tick_widget.setValue)
+
+    def get_prompt_colour_dict(self, id: int = 0):
+        tick_dict = {}
+        _ = [
+            tick_dict.setdefault(s, []).append(
+                tuple(
+                    (self.global_colour_cycle.colors[obj_id] * 255)[
+                        :-1
+                    ].astype(int)
+                )
+            )
+            for obj_id, slices in (
+                {id: self.prompts.get(id, [])} if id else self.prompts
+            ).items()
+            for s in slices
+        ]
+        return tick_dict
 
     def create_prompt_layers(self):
         # NOTE: We want to add labels first so that points is "above", and are better seen
@@ -371,6 +447,9 @@ class PromptWidget(SAM2Subwidget):
         # Now add it to the new points layer
         self.viewer.window.qt_viewer.controls.widgets[layer].layout().addRow(
             trans._("label:"), colourbox_layout
+        )
+        colourbox_widget.selection_spinbox.valueChanged.connect(
+            self.redraw_prompt_ticks
         )
 
     def remove_objects_from_frames(
@@ -628,6 +707,8 @@ class PromptWidget(SAM2Subwidget):
             }
         self.set_start_spinbox_special_text()
 
+        self.redraw_prompt_ticks(id=object_id)
+
     def update_prompt_masks(self, out_obj_ids: dict, frame_idx: int):
         # Update the prompt masks
         label_layer = self.viewer.layers[self.label_layer_name]
@@ -697,6 +778,8 @@ class PromptWidget(SAM2Subwidget):
         self.remove_objects_from_frames(
             object_ids=list(self.prompts.keys()), frame_idxs=frame_idx
         )
+        # Remove prompt ticks from navigation
+        self.redraw_prompt_ticks()
 
     def reset_prompt_layers(self):
         # NOTE: To avoid triggering data change events, we delete the layers and recreate them
@@ -710,6 +793,8 @@ class PromptWidget(SAM2Subwidget):
         self.parent.subwidgets["model"].reset_model()
         # Reset the progress bar just to clear previous run
         self.reset_pbar()
+        # Remove prompt ticks from navigation
+        self.redraw_prompt_ticks()
         # Recalculate start frame hint
         self.set_start_spinbox_special_text()
 
@@ -855,11 +940,13 @@ class PromptWidget(SAM2Subwidget):
         # Increase the label for the selected point
         label_layer = self.viewer.layers[self.label_layer_name]
         label_layer.selected_label += 1
+        self.redraw_prompt_ticks()
 
     def on_decrease_label(self, layer):
         # Decrease the label for the selected point
         label_layer = self.viewer.layers[self.label_layer_name]
         label_layer.selected_label -= 1
+        self.redraw_prompt_ticks()
 
     def select_max_label(self, layer):
         # Get the next available label
@@ -870,6 +957,57 @@ class PromptWidget(SAM2Subwidget):
             label_layer.selected_label = 1
         else:
             label_layer.selected_label = new_max_label
+        self.redraw_prompt_ticks()
+
+    def jump_to_slice(self, value):
+        # Target slice out of range -> do nothing
+        if value not in np.arange(
+            self.viewer.dims.range[self.viewer.dims.last_used].stop + 1
+        ):
+            return
+        # TODO: generalise to any number of dimensions
+        # Scroll through the image
+        _new_step = list(self.viewer.dims.current_step)
+        _new_step[0] = value
+        self.viewer.dims.current_step = _new_step
+
+    def get_next_prompt_slice(self, current_only=True, back=False):
+        idx = self.viewer.dims.current_step[0]
+        if not self.prompts or self.label_layer_name not in self.viewer.layers:
+            return -1
+        if current_only:
+            # Process prompts for current object id only
+            id_prompts = self.prompts.get(
+                self.viewer.layers[self.label_layer_name].selected_label,
+                {},  # no prompts yet for this id
+            )
+            slices = np.array([*id_prompts.keys()])
+        else:
+            # Check all prompted frames, ignoring object id
+            slices = np.array(
+                [
+                    *chain.from_iterable(
+                        (k for k in i) for i in self.prompts.values()
+                    )
+                ]
+            )
+        if back:
+            s = slices[slices < idx]
+            if len(s):
+                return s.max()
+        else:
+            s = slices[slices > idx]
+            if len(s):
+                return s.min()
+        # No prompts to skip to!
+        return -1
+
+    def on_jump_prompt_slice(self, back):
+        self.jump_to_slice(
+            self.get_next_prompt_slice(
+                current_only=self.current_obj_box.isChecked(), back=back
+            )
+        )
 
     class PropagationBoundsManager:
         def __init__(self, outer_instance):
@@ -896,6 +1034,7 @@ class PromptWidget(SAM2Subwidget):
             self.widget.max_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
             self.widget.start_frame_spinbox.setMaximum(self._NUM_FRAMES - 1)
             self.widget.set_endmax_spinbox_special_text()
+            self.widget.refresh_prompt_scroll_widget()
 
         def set_start_frame(self, idx: int | None = None):
             if idx is None:
@@ -1185,3 +1324,163 @@ class PromptWidget(SAM2Subwidget):
     def cancel_propagation(self):
         # Set a flag to cancel the propagation
         self.cancel_prop = True
+
+    def redraw_prompt_ticks(self, id=0):
+        if not self.prompts or self.label_layer_name not in self.viewer.layers:
+            self.tick_widget.setTicks({})
+            return
+        self.tick_widget.setTicks(
+            self.get_prompt_colour_dict(
+                id=(
+                    self.current_obj_box.isChecked()
+                    * (
+                        id
+                        or self.viewer.layers[
+                            self.label_layer_name
+                        ].selected_label
+                    )
+                )
+            )
+        )
+
+
+## -- Partly Vibecoded POC for prompt navigator --
+
+
+class TickWidget(QWidget):
+    tickClicked = Signal(int)  # emits slice index
+    valueChanged = Signal(int)  # updates when slider moves
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.ticks = {}  # {slice_index: [QColor, ...]}
+        self.handleWidth = 8
+        self.slider_min = 0
+        self.slider_max = 0
+        self.layer_h = 7
+
+    def setSliderRange(self, mn, mx):
+        self.slider_min = mn
+        self.slider_max = mx
+        self.update()
+
+    def setTicks(self, tick_dict):
+        # normalize colors
+        self.ticks = {}
+        for k, v in tick_dict.items():
+            if isinstance(v, (list, tuple)) and all(
+                isinstance(c, (tuple, QColor)) for c in v
+            ):
+                self.ticks[k] = [
+                    QColor(*c) if isinstance(c, tuple) else c for c in v
+                ]
+            else:
+                color = QColor(*v) if isinstance(v, tuple) else v
+                self.ticks[k] = [color]
+        # adjust widget height
+        max_layers = max((len(v) for v in self.ticks.values()), default=0)
+        self.setMinimumHeight(max_layers * self.layer_h)
+
+        self.update()
+
+    def paintEvent(self, ev):
+        if self.slider_max <= self.slider_min or not self.ticks:
+            return
+
+        p = QPainter(self)
+        w = self.width()
+        h = self.height()
+
+        bar_width = 4  # px
+
+        step = (w - self.handleWidth) / (self.slider_max - self.slider_min)
+
+        for idx, layers in self.ticks.items():
+            t = idx - self.slider_min
+            x = int(t * step + self.handleWidth / 2)
+
+            for i, color in enumerate(layers):
+                y = i * self.layer_h
+                p.fillRect(
+                    QRect(int(x - bar_width / 2), y, bar_width, self.layer_h),
+                    color,
+                )
+
+    def mousePressEvent(self, ev):
+        if self.slider_max <= self.slider_min:
+            return
+
+        w = self.width()
+        t = ev.x() / float(w)
+        approx = int(self.slider_min + t * (self.slider_max - self.slider_min))
+
+        # pick closest tick by x
+        hit_radius = 5
+        best = None
+        best_dist = None
+
+        for idx in self.ticks.keys():
+            tx = int(
+                (idx - self.slider_min)
+                / (self.slider_max - self.slider_min)
+                * (w - self.handleWidth)
+            )
+            tx += self.handleWidth / 2
+            d = abs(ev.x() - tx)
+
+            if d <= hit_radius and (best is None or d < best_dist):
+                best = idx
+                best_dist = d
+
+        if best is not None:
+            self.tickClicked.emit(best)
+            self.valueChanged.emit(best)
+
+
+class PromptTicks(QWidget):
+    tickClicked = Signal(int)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setPageStep(1)
+
+        self.handleWidth = 8
+        ss = f"""
+            QSlider::handle:horizontal {{
+                width: {self.handleWidth}px;
+                border-radius: {self.handleWidth / 2}px;
+            }}
+        """
+        self.slider.setStyleSheet(ss)
+
+        self.ticks = TickWidget()
+        self.ticks.handleWidth = self.handleWidth
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(self.slider)
+        layout.addWidget(self.ticks)
+
+        # Connect interaction
+        self.ticks.tickClicked.connect(self.slider.setValue)
+        self.ticks.tickClicked.connect(self.tickClicked)
+        self.slider.valueChanged.connect(self.ticks.valueChanged)
+
+    # external API remains the same
+    def setRange(self, mn, mx):
+        self.slider.setRange(mn, mx)
+        self.ticks.setSliderRange(mn, mx)
+
+    def setTicks(self, tick_dict):
+        self.ticks.setTicks(tick_dict)
+        # update tick widget range after ticks change
+        self.ticks.setSliderRange(self.slider.minimum(), self.slider.maximum())
+
+    def value(self):
+        return self.slider.value()
+
+    def setValue(self, v):
+        self.slider.setValue(v)

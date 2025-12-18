@@ -44,4 +44,5 @@ class SAM2Subwidget(QGroupBox):
         # Add the layout to the group box
         self.setLayout(self.layout)
         # Add the group box to the main layout
-        self.parent.layout().addWidget(self)
+        # self.parent.layout().addWidget(self)
+        self.parent.container_layout.addWidget(self)

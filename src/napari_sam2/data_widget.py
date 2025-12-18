@@ -98,6 +98,8 @@ class DataWidget(SAM2Subwidget):
             self.image_layer_dropdown.removeItem(
                 self.image_layer_dropdown.findText(event.value.name)
             )
+        if "prompt" in self.parent.subwidgets:
+            self.parent.subwidgets["prompt"].refresh_prompt_scroll_widget()
 
     def switch_selected_layer(self, event):
         # Integer means we're switching layers via the dropdown, not selection
