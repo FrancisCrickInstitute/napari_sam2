@@ -385,6 +385,11 @@ If you have a GPU but it is not being used, please check your PyTorch installati
     def create_frames(self):
         # Get existing data
         layer = self.parent.subwidgets["data"].current_layer
+        if layer is None:
+            show_error(
+                "No image layer available. Please load or select an image layer."
+            )
+            return False
         # NOTE: We pull from layer directly rather than file to ensure any in-Napari changes are carried over, avoid re-reading file, and avoid having to track file paths
         # Check if frames already exist for this specific data
         if layer.data.ndim == 2:
