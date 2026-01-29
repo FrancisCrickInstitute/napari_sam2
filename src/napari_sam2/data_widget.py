@@ -55,14 +55,11 @@ class DataWidget(SAM2Subwidget):
         )
         self.image_layer_dropdown.setMaximumWidth(300)
         # Add any existing layers
-        if len(self.viewer.layers) > 0:
-            current_image_layers = [
-                layer.name
-                for layer in self.viewer.layers
-                if isinstance(layer, Image)
-            ]
-            if len(current_image_layers) > 0:
-                self.image_layer_dropdown.addItems(current_image_layers)
+        for layer in self.viewer.layers:
+            if isinstance(layer, Image):
+                # Add reference to layer object as itemId
+                self.image_layer_dropdown.addItem(layer.name, layer)
+                layer.events.name.connect(self.layer_renamed)
 
         # Add the widgets to the layout
         self.layout.addWidget(self.image_layer_label, 0, 0, 1, 1)
@@ -91,7 +88,8 @@ class DataWidget(SAM2Subwidget):
 
     def layer_added(self, event):
         if isinstance(event.value, Image):
-            self.image_layer_dropdown.insertItem(0, event.value.name)
+            self.image_layer_dropdown.insertItem(0, event.value.name, event.value)
+            event.value.events.name.connect(self.layer_renamed)
 
     def layer_removed(self, event):
         if isinstance(event.value, Image):
@@ -100,6 +98,11 @@ class DataWidget(SAM2Subwidget):
             )
         if "prompt" in self.parent.subwidgets:
             self.parent.subwidgets["prompt"].refresh_prompt_scroll_widget()
+
+    def layer_renamed(self, event):
+        layer = event.source
+        qcomboidx = self.image_layer_dropdown.findData(layer)
+        self.image_layer_dropdown.setItemText(qcomboidx, layer.name)
 
     def switch_selected_layer(self, event):
         # Integer means we're switching layers via the dropdown, not selection

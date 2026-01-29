@@ -2,6 +2,7 @@ from importlib.resources import files
 from pathlib import Path
 import shutil
 from typing import TYPE_CHECKING, Optional
+import hashlib
 
 import hydra
 from hydra import initialize_config_dir
@@ -385,6 +386,11 @@ If you have a GPU but it is not being used, please check your PyTorch installati
     def create_frames(self):
         # Get existing data
         layer = self.parent.subwidgets["data"].current_layer
+        if layer is None:
+            show_error(
+                "No image layer available. Please load or select an image layer."
+            )
+            return False
         # NOTE: We pull from layer directly rather than file to ensure any in-Napari changes are carried over, avoid re-reading file, and avoid having to track file paths
         # Check if frames already exist for this specific data
         if layer.data.ndim == 2:
@@ -407,7 +413,10 @@ If you have a GPU but it is not being used, please check your PyTorch installati
                 )
                 return False
         # Create frame folder for this specific image layer
-        self.frame_folder = self.frame_temp_dir / layer.name.split(".")[0]
+        pathhash = hashlib.md5(layer.source.path.encode()).hexdigest()
+        self.frame_folder = self.frame_temp_dir / "-".join(
+            (layer.name.split(".")[0], str(expected_num_frames), pathhash)
+        )
         self.frame_folder.mkdir(exist_ok=True)
         frames = list(self.frame_folder.glob("*.jpg"))
         num_frames = len(frames)

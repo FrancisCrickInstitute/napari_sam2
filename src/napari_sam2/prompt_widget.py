@@ -1120,6 +1120,8 @@ class PromptWidget(SAM2Subwidget):
                 start_frame = self._start_frame
             assert (
                 0 <= start_frame <= self.widget.start_frame_spinbox.maximum()
+            ), (
+                f"start_frame: {start_frame}, spinbox max:{self.widget.start_frame_spinbox.maximum()}"
             )
             return start_frame
 
